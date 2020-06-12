@@ -16,17 +16,28 @@ class Energy:
 		print("Loading insolation map...")
 		self.constant_insolation = self._load_raster(insolation_path, glacier_outlines_path)
 
-	def calc_heat_influx(self, t_air, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, albedo):
+	def calc_heat_influx(self, t_air, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, albedo, z):
 		t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
 		hs = self.turb_heat_transfer(t_air, t_surf, wind_speed)
-		hl = self.latent_heat(t_air, rel_humidity, wind_speed, air_pressure)
+		hl = self.latent_heat(t_air, rel_humidity, wind_speed, air_pressure, z)
 		rl = self.calc_longwave(t_air, t_surf, cloudiness)
 		return hs + hl + rl + incoming_shortwave * (1 - albedo)
 
 	@staticmethod
+	def calc_ice_melt(ice_heat_influx, ice_density, days):
+		"""
+
+		:param ice_heat_influx:
+		:param ice_density: assumed ice density kg per cibic meter
+		:param days: number of days
+		:return: thickness of melt ice layer in meters w.e.
+		"""
+		return (ice_heat_influx * 86400) / (ice_density * 3.33 * 10e5) * days
+
+	@staticmethod
 	def calc_longwave(t_air, t_surf, cloudiness):
-		lwu = 0.98 * 5.669 * 10e-8 * to_kelvin(t_surf) ^ 4
-		lwd = (0.765 + 0.22 * cloudiness ^ 3) * 5.669 * 10e-8 * to_kelvin(t_air) ^ 4
+		lwu = 0.98 * 5.669 * 10e-8 * to_kelvin(t_surf) ** 4
+		lwd = (0.765 + 0.22 * cloudiness ** 3) * 5.669 * 10e-8 * to_kelvin(t_air) ** 4
 		return lwu - lwd
 
 	@staticmethod
@@ -54,7 +65,7 @@ class Energy:
 		# variable "e" is the partial water vapour pressure
 		e_max = self.calc_e_max(t_air, air_pressure)  # partial water vapor pressure for saturated air
 		ez = (rel_humidity * e_max) / 100  # e at the height of measurements
-		e0 = ez / (10 ^ (-z / 6300))  # e at the needed level
+		e0 = ez / (10 ** (-z / 6300))  # e at the needed level
 		p = (18.015 * e0) / (8.31 * t_air)
 		return (623 * e0) / (p - 0.377 * e0)
 
@@ -67,7 +78,7 @@ class Energy:
 		:return:
 		"""
 		ew_t = 6.112 * exp((17.62 * t_air) / (243.12 + t_air))
-		f_p = 1.0016 + 3.15 * 10e-6 * air_pressure - 0.074 * air_pressure ^ -1
+		f_p = 1.0016 + 3.15 * 10e-6 * air_pressure - 0.074 / air_pressure
 		return f_p * ew_t
 
 	@staticmethod
