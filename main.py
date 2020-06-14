@@ -28,18 +28,13 @@ influx = e.calc_heat_influx(t_air, wind_speed, rel_humidity, air_pressure, cloud
 melt = e.calc_ice_melt(influx, 916.7, 30)
 plt.imshow(influx)
 plt.colorbar()
-plt.title("Test heat influx, W per sq m")
-plt.show()
+plt.title("Heat influx, W per sq m")
+plt.savefig("/home/tepex/PycharmProjects/energy/png/influx.png")
+# plt.show()
+
 
 plt.imshow(melt)
 plt.colorbar()
-plt.title("Test melt, m w.e.")
-plt.show()
-
-"""
-air_t_array = e.interpolate_air_t(t_air, aws_coords[2])
-plt.imshow(air_t_array)
-plt.colorbar()
-plt.title("Air temperature grid")
-plt.show()
-"""
+plt.title("Ice melt, m w.e.")
+plt.savefig("/home/tepex/PycharmProjects/energy/png/ice_melt.png")
+# plt.show()

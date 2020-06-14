@@ -22,12 +22,9 @@ class Energy:
 		hl = self.calc_latent_heat_transfer(t_air, rel_humidity, wind_speed, air_pressure, z)
 		rl = self.calc_longwave(t_air, t_surf, cloudiness)
 
-		plt.imshow(hs)
-		plt.title("hs")
-		print("Mean hs is:")
-		print(np.nanmean(hs))
-		plt.colorbar()
-		plt.show()
+		debug_imshow(hs, title="Sensible")
+		debug_imshow(hl, title="Latent")
+		debug_imshow(rl, title="Longwave")
 
 		return hs + hl + rl + incoming_shortwave * (1 - albedo)
 
@@ -128,3 +125,17 @@ class Energy:
 
 def to_kelvin(t_celsius):
 	return t_celsius + 273.15
+
+
+def debug_imshow(array, title="Test", show=False):
+	try:
+		plt.imshow(array)
+		plt.title(title)
+		print("Mean %s is %.3f:" % (title, np.nanmean(array)))
+		plt.colorbar()
+		plt.savefig("/home/tepex/PycharmProjects/energy/png/%s.png" % title)
+		if show:
+			plt.show()
+		plt.clf()
+	except Exception as e:
+		print(e)
