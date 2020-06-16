@@ -1,4 +1,3 @@
-import numpy as np
 """
 Bulk aerodynamic technique for estimating heat exchange in turbulent flow
 See references:
@@ -18,11 +17,12 @@ Journal of Glaciology, 51(172), 25-36. doi:10.3189/172756505781829566
 southwest Yukon, Canada. Journal of Glaciology, 57(201), 121-133. doi:10.3189/002214311795306709
 
 """
+import numpy as np
 
 
 def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False):
-	sensible_flux, L = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
-	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=None)
+	sensible_flux, monin_obukhov_lentgh = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
+	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_lentgh)
 	return sensible_flux, latent_flux
 
 
