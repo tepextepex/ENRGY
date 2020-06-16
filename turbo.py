@@ -20,6 +20,19 @@ southwest Yukon, Canada. Journal of Glaciology, 57(201), 121-133. doi:10.3189/00
 import numpy as np
 
 
+CONST = {
+	"specific_gas_constant": 287.058,  # [J kg-1 K-1]
+	"k": 0.4,  # von Karman constant [dimensionless]
+	"g": 9.81,  # acceleration due to the gravity [m s-2]
+	"specific_heat_capacity": 1010,  # ...of an air [J kg-1 K-1]
+	"Ts": 0 + 273.15,  # the absolute temperature of melting ice/snow surface [K]
+	"es": 611,  # water vapour pressure at the ice surface [Pa]
+	"latent_heat_vaporization": 2.514 * 10**6,  # latent heat of water vaporization [J kg-1]
+	"latent_heat_sublimation": 2.849 * 10**6,  # latent heat of water ice sublimation [J kg-1]
+	"zm": 0.01  # (empirical) roughness length for momentum (for wind) [m]
+}
+
+
 def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False):
 	sensible_flux, monin_obukhov_lentgh = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
 	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_lentgh)
@@ -27,7 +40,7 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False)
 
 
 def _get_dry_air_density(t_air, p_air):
-	specific_gas_constant = 287.058  # J kg-1 K-1
+	specific_gas_constant = CONST["specific_gas_constant"]
 	return p_air/(specific_gas_constant * t_air)
 
 
@@ -72,9 +85,9 @@ def _calc_monin_obukhov_length(Tz, P, u_aster, Qh):
 	:param Qh: sensible heat flux [W m-2]
 	:return:
 	"""
-	k = 0.4  # dimensionless, von Karman constant
-	g = 9.81  # meters per s^2, acceleration due to gravity
-	Cp = 1010  # J kg-1 K-1,  the specific heat capacity of air
+	k = CONST["k"]
+	g = CONST["g"]
+	Cp = CONST["specific_heat_capacity"]
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
 	num = rho * Cp * u_aster ** 3 * Tz
 	denum = k * g * Qh
@@ -86,11 +99,11 @@ def _calc_sensible(z, uz, Tz, P, L=None):
 	Computes sensible heat flux [W m-2]
 	:return:
 	"""
-	Ts = 0 + 273.15  # K, temperature of melting surface
-	Cp = 1010  # J kg-1 K-1,  the specific heat capacity of air
+	Ts = CONST["Ts"]  # the absolute temperature of melting ice/snow surface [K]
+	Cp = CONST["specific_heat_capacity"]
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
 	CH = _calc_turb_exchange_coef(z, L=L)
-	# print("CH coefficient is %s" % CH)
+
 	return CH * Cp * rho * uz * (Tz - Ts)
 
 
@@ -105,14 +118,15 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 	:param L:
 	:return:
 	"""
-	es = 611  # Pa, water vapour pressure at the ice surface
+	es = CONST["es"]  # Pa, water vapour pressure at the ice surface
+	Lv = CONST["latent_heat_vaporization"]  # J kg-1, latent heat of vaporization (for positive flux)
+	Ls = CONST["latent_heat_sublimation"]  # J kg-1, latent heat of sublimation (for negative flux)
+
 	e_max = _calc_e_max(Tz, P)  # Pa, partial water vapor pressure for saturated air
 	ez = e_max * rel_humidity  # Pa, partial vapour pressure at the height of measurements "z"
-	Lv = 2.514 * 10 ** 6  # J kg-1, latent heat of vaporization (for positive flux)
-	Ls = 2.849 * 10 ** 6  # J kg-1, latent heat of sublimation (for negative flux)
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
 	CE = _calc_turb_exchange_coef(z, L=L)
-	# print("CE coefficient is %s" % CE)
+
 	return CE * Lv * rho * uz * 0.622 / P * (ez - es)
 
 
@@ -123,8 +137,8 @@ def _calc_turb_exchange_coef(z, L=None):
 	:param L: Monin-Obukhov stability length [m]
 	:return:
 	"""
-	k = 0.4  # dimensionless, von Karman constant
-	zm = 0.001  # meters, roughness length for momentum
+	k = CONST["k"]  # dimensionless, von Karman constant
+	zm = CONST["zm"]  # meters, roughness length for momentum
 	z_h_or_e = zm / 100  # meters, roughness length for heat or water vapour
 	num = k ** 2
 	if L is not None:
@@ -137,8 +151,8 @@ def _calc_turb_exchange_coef(z, L=None):
 
 
 def _calc_friction_velocity(uz, z, L=None):
-	k = 0.4  # dimensionless, von Karman constant
-	zm = 0.01  # meters, roughness length for momentum
+	k = CONST["k"] # dimensionless, von Karman constant
+	zm = CONST["zm"]  # meters, roughness length for momentum
 	num = k * uz
 	if L is not None:
 		minus_psi_m = _calc_minus_psi_m(z, L)
