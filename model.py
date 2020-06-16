@@ -6,27 +6,36 @@ import matplotlib.pyplot as plt
 class Energy:
 	def __init__(self, base_dem_path, glacier_outlines_path, albedo_path, insolation_path):
 
+		self.outlines_path = glacier_outlines_path
+
 		print("Loading base DEM...")
-		self.base_dem_array = self._load_raster(base_dem_path, glacier_outlines_path)
+		self.base_dem_array = self._load_raster(base_dem_path, self.outlines_path)
 
 		print("Loading albedo map...")
-		self.constant_albedo = self._load_raster(albedo_path, glacier_outlines_path)
+		self.constant_albedo = self._load_raster(albedo_path, self.outlines_path, remove_outliers=True)
+		debug_imshow(self.constant_albedo, "Albedo grid (not used)")
 
 		print("Loading insolation map...")
-		self.constant_insolation = self._load_raster(insolation_path, glacier_outlines_path)
+		self.constant_insolation = self._load_raster(insolation_path, self.outlines_path)
+		debug_imshow(self.constant_insolation, "Total potential incoming radiation (not used)")
+
+	def run(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, albedo, z, elev_aws, ice_density, days):
+		# heat available for melt:
+		Qm = self.calc_heat_influx(t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, albedo, z, elev_aws)
+		debug_imshow(Qm, title="Heat available for melt")
+		# amount of ice which was melt:
+		ice_melt = self.calc_ice_melt(Qm, ice_density, days)
+		debug_imshow(ice_melt, title="Ice melt, m w.e.")
+		return ice_melt
 
 	def calc_heat_influx(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, albedo, z, elev_aws):
 		t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
 		t_air = self.interpolate_air_t(t_air_aws, elev_aws)
-		hs = self.calc_sensible_heat_transfer(t_air, t_surf, wind_speed)
-		hl = self.calc_latent_heat_transfer(t_air, rel_humidity, wind_speed, air_pressure, z)
-		rl = self.calc_longwave(t_air, t_surf, cloudiness)
 
-		debug_imshow(hs, title="Sensible")
-		debug_imshow(hl, title="Latent")
+		rl = self.calc_longwave(t_air, t_surf, cloudiness)
 		debug_imshow(rl, title="Longwave")
 
-		return hs + hl + rl + incoming_shortwave * (1 - albedo)
+		return rl + incoming_shortwave * (1 - albedo)
 
 	@staticmethod
 	def calc_ice_melt(ice_heat_influx, ice_density, days):
@@ -37,13 +46,12 @@ class Energy:
 		:param days: number of days
 		:return: thickness of melt ice layer in meters w.e.
 		"""
-		return (ice_heat_influx * 86400) / (ice_density * 3.33 * 10**5) * days
+		return (ice_heat_influx * 86400) / (ice_density * 3.33 * 10 ** 5) * days
 
 	@staticmethod
 	def calc_longwave(t_air, t_surf, cloudiness):
 		lwu = 0.98 * 5.669 * 10 ** -8 * to_kelvin(t_surf) ** 4
 		lwd = (0.765 + 0.22 * cloudiness ** 3) * 5.669 * 10 ** -8 * to_kelvin(t_air) ** 4
-		# return lwu - lwd
 		return lwd - lwu
 
 	@staticmethod
@@ -51,58 +59,17 @@ class Energy:
 		return potential_incoming_solar_radiation * k
 
 	@staticmethod
-	def calc_sensible_heat_transfer(t_air, t_surf, wind_speed):
-		return 1.293 * 1005 * 0.001 * wind_speed * (t_surf - t_air)
-
-	def calc_latent_heat_transfer(self, t_air, rel_humidity, wind_speed, air_pressure, z):
-		q_air_0 = self.calc_q(rel_humidity, t_air, air_pressure, z=z)  # yes, z=z, that is not a typo
-		print("q_air_0 is %.3f" % np.nanmean(q_air_0))
-
-		q_air_z = self.calc_q(rel_humidity, t_air, air_pressure, z=0)  # yes, z=0 is here
-		print("q_air_z is %.3f" % np.nanmean(q_air_z))
-
-		return 1.293 * 2260 * 0.01 * wind_speed * (q_air_0 - q_air_z)
-
-	def calc_q(self, rel_humidity, t_air, air_pressure, z=0):
-		"""
-		Computes specific water content of the air at the certain level above the surface
-		:param rel_humidity: measured air relative humidity
-		:param t_air: measured air temperature in Celsius
-		:param air_pressure: in hPa
-		:param z: measurements height above the surface in meters
-		:return:
-		"""
-		# variable "e" is the partial water vapour pressure measured in hPa
-		e_max = self.calc_e_max(t_air, air_pressure)  # partial water vapor pressure for saturated air
-		print("max partial water vapour pressure is %.3f hPa" % np.nanmean(e_max))
-		ez = (rel_humidity * e_max)  # e at the height of measurements
-		# print("%.3f hPa" % np.nanmean(ez))
-		e0 = ez / (10 ** (-z / 6300))  # e at the needed level
-		print("%.3f hPa" % np.nanmean(e0))
-		p = (18.015 * e0) / (8.31 * t_air)
-		return (623 * e0) / (p - 0.377 * e0)
-
-	@staticmethod
-	def calc_e_max(t_air, air_pressure):
-		"""
-		Computes partial water vapour pressure of saturated air
-		:param t_air: in Celsius
-		:param air_pressure: in hPa
-		:return:
-		"""
-		ew_t = np.empty_like(t_air, dtype=np.float32)
-		ew_t = 6.112 * np.exp((17.62 * t_air) / (243.12 + t_air))
-		f_p = 1.0016 + 3.15 * 10**-6 * air_pressure - 0.074 / air_pressure
-		return f_p * ew_t
-
-	@staticmethod
-	def _load_raster(raster_path, crop_path):
+	def _load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=False):
 		ds = gdal.Open(raster_path)
 		crop_ds = gdal.Warp("", ds, dstSRS="+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs", format="VRT", cutlineDSName=crop_path, outputType=gdal.GDT_Float32, xRes=10, yRes=10)
 		band = crop_ds.GetRasterBand(1)
 		nodata = band.GetNoDataValue()
 		array = band.ReadAsArray()
 		array[array == nodata] = np.nan
+		if remove_negatives:
+			array[array < 0] = np.nan  # makes sense for albedo which couldn't be negative
+		if remove_outliers:
+			array[array > 1] = np.nan
 		return array
 
 	@staticmethod
@@ -112,15 +79,25 @@ class Energy:
 		plt.show()
 		plt.clf()
 
-	def interpolate_air_t(self, t_air, elev):
-		"""
+	def interpolate_air_t(self, t_air, elev, v_gradient=None):
+		if v_gradient is None:
+			v_gradient = -0.006  # 6 degrees Celsius or Kelvin per 1 m
+		return self.interpolate_on_dem(t_air, elev, v_gradient)
 
-		:param t_air: measured air temperature at the weather station
-		:param elev: elevation of the weather station
-		:return: numpy array with air temperature grid
+	def interpolate_pressure(self, pressure, elev, v_gradient=None):
+		if v_gradient is None:
+			v_gradient = -0.1145  # hPa per 1 m
+		return self.interpolate_on_dem(pressure, elev, v_gradient)
+
+	def interpolate_on_dem(self, value, elev, v_gradient):
 		"""
-		# temp_array = np.empty_like(self.base_dem_array, dtype=np.float32)
-		return (self.base_dem_array - elev) * -6/1000 + t_air
+		Interpolates a single measurement of something, which depends on elevation from a dem, to a numpy array
+		:param value: measured value
+		:param elev: measurement elevation (above sea or ellipsoid level, NOT above surface)
+		:param v_gradient: vertical gradient
+		:return: array
+		"""
+		return (self.base_dem_array - elev) * v_gradient + value
 
 
 def to_kelvin(t_celsius):
