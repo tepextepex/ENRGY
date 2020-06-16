@@ -25,7 +25,7 @@ class Energy:
 	def __init_constants(self):
 		self.CONST = {
 			"ice_density": 916.7,  # kg m-3
-			"latent_heat_of_fusion": 3.34 * 10 ** 5,  # J kg-1
+			"latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
 			"g": 9.81
 		}
 
