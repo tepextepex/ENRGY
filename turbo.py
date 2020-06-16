@@ -1,5 +1,8 @@
 """
-Bulk aerodynamic technique for estimating heat exchange in turbulent flow
+Bulk aerodynamic technique for estimating heat exchange in turbulent flow.
+Atmospheric conditions are assumed to be stable.
+[unstable parametrization is under construction]
+
 See references:
 1) Munro, D.S. 1989. Surface roughness and bulk heat transfer on a
 glacier: comparison with eddy correlation. J. Glaciol., 35(121),
@@ -15,7 +18,6 @@ for complex topography and its application to Storglaciären, Sweden.
 Journal of Glaciology, 51(172), 25-36. doi:10.3189/172756505781829566
 5) Wheler, B., & Flowers, G. (2011). Glacier subsurface heat-flux characterizations for energy-balance modelling in the Donjek Range,
 southwest Yukon, Canada. Journal of Glaciology, 57(201), 121-133. doi:10.3189/002214311795306709
-
 """
 import numpy as np
 
@@ -34,8 +36,22 @@ CONST = {
 
 
 def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False):
-	sensible_flux, monin_obukhov_lentgh = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
-	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_lentgh)
+	"""
+	Computes turbulent heat fluxes based on the bulk aerodynamic method.
+	Monin-Obukhov stability length is defined from iterative process with initial assumption of z/L=0
+	Turbulent processes parametrization for stable atmosphere follows Beljaars and Holtslag (1991)
+
+	:param z: height of measurements above the surface, usually 2m [m]
+	:param uz: wind speed at the height of z [m s-1]
+	:param Tz: absolute air temperature at the height of z [K]
+	:param P: air pressure at the height of z [Pa]
+	:param rel_humidity: relative humidity of the air at the height of z [from 0.0 to 1.0]
+	:param max_iter: maximum number of iterations to define Monin-Obukhov stability length [integer]
+	:param verbose: shows result of every iteration [True/False]
+	:return: a tuple (sensible_heat_flux, latent_heat_flux) in [W m-2]
+	"""
+	sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
+	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length)
 	return sensible_flux, latent_flux
 
 
@@ -45,22 +61,23 @@ def _get_dry_air_density(t_air, p_air):
 
 
 def _calc_sensible_iteratively(z, uz, Tz, P, max_iter=5, verbose=False):
+	if isinstance(max_iter, int) and max_iter < 10:
+		max_iter = max_iter
+	else:
+		max_iter = 5  # 5 iterations ought to be enough for anybody (usually less)
+
 	# calculation of L requires knowledge of both Qh and the friction velocity u_aster:
-	# we need to make an initial guess of L
+	# we need to make an initial guess of L,
 	# assuming that z/L = 0 by passing l=None into the following functions:
-	u_aster_init = _calc_friction_velocity(uz, z, L=None)
-	Qh_init = _calc_sensible(z, uz, Tz, P, L=None)
-	L_init = _calc_monin_obukhov_length(Tz, P, u_aster_init, Qh_init)
+	u_aster = _calc_friction_velocity(uz, z, L=None)
+	Qh = _calc_sensible(z, uz, Tz, P, L=None)
+	L = _calc_monin_obukhov_length(Tz, P, u_aster, Qh)
 
 	if verbose:
 		print("Initial guess:")
-		print("u*=%.3f m/s" % u_aster_init)
-		print("Qh=%.1f W/m^2" % Qh_init)
-		print("Monin-Obukhov length is %.1f m" % L_init)
-
-	u_aster = u_aster_init
-	Qh = Qh_init
-	L = L_init
+		print("u*=%.3f m/s" % u_aster)
+		print("Qh=%.1f W/m^2" % Qh)
+		print("Monin-Obukhov length is %.1f m" % L)
 
 	for i in range(0, max_iter):
 		u_aster = _calc_friction_velocity(uz, z, L=L)
@@ -83,7 +100,7 @@ def _calc_monin_obukhov_length(Tz, P, u_aster, Qh):
 	:param P: air pressure at the height "z" [Pa]
 	:param u_aster: friction velocity [m s-1]
 	:param Qh: sensible heat flux [W m-2]
-	:return:
+	:return: Monin-Obukhov length [m]
 	"""
 	k = CONST["k"]
 	g = CONST["g"]
@@ -97,6 +114,11 @@ def _calc_monin_obukhov_length(Tz, P, u_aster, Qh):
 def _calc_sensible(z, uz, Tz, P, L=None):
 	"""
 	Computes sensible heat flux [W m-2]
+	:param z:
+	:param uz:
+	:param Tz:
+	:param P:
+	:param L:
 	:return:
 	"""
 	Ts = CONST["Ts"]  # the absolute temperature of melting ice/snow surface [K]
@@ -132,7 +154,8 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 
 def _calc_turb_exchange_coef(z, L=None):
 	"""
-	Computes CH or CE coefficients
+	Computes the turbulent exchange coefficients for sensible (CH) or for latent flux (CE)
+	under stable atmospheric conditions
 	:param z: height of measurements above the surface [m]
 	:param L: Monin-Obukhov stability length [m]
 	:return:
@@ -140,7 +163,7 @@ def _calc_turb_exchange_coef(z, L=None):
 	k = CONST["k"]  # dimensionless, von Karman constant
 	zm = CONST["zm"]  # meters, roughness length for momentum
 	z_h_or_e = zm / 100  # meters, roughness length for heat or water vapour
-	num = k ** 2
+	num = k**2
 	if L is not None:
 		minus_psi_m = _calc_minus_psi_m(z, L)
 		minus_psi_h_or_e = _calc_minus_psi_h_or_e(z, L)
@@ -151,12 +174,12 @@ def _calc_turb_exchange_coef(z, L=None):
 
 
 def _calc_friction_velocity(uz, z, L=None):
-	k = CONST["k"] # dimensionless, von Karman constant
+	k = CONST["k"]  # dimensionless, von Karman constant
 	zm = CONST["zm"]  # meters, roughness length for momentum
 	num = k * uz
 	if L is not None:
 		minus_psi_m = _calc_minus_psi_m(z, L)
-		# denum = np.log(z / zm) + minus_psi_m * (z / L)
+		# denum = np.log(z / zm) + minus_psi_m * (z / L)  # this formula from Munro, 1990, has a typo! DO NOT USE
 		denum = np.log(z / zm) + minus_psi_m
 	else:
 		denum = np.log(z / zm)
