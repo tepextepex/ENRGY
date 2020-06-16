@@ -231,7 +231,8 @@ if __name__ == "__main__":
 	P = 99000  # Pascals
 	rel_humidity = 0.85
 	############################
-	Qh, L = _calc_sensible_iteratively(z, uz, Tz, P)
-	latent = _calc_latent(z, uz, Tz, P, rel_humidity, L)
-	print("")
-	print("Latent flux is %.1f W/m^2" % latent)
+	QH, QE = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=True)
+	print("******************")
+	print("Final result:")
+	print("Sensible heat flux is %.1f W m-2" % QH)
+	print("Latent heat flux is %.1f W m-2" % QE)
