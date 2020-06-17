@@ -149,7 +149,10 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
 	CE = _calc_turb_exchange_coef(z, L=L)
 
-	return CE * Lv * rho * uz * 0.622 / P * (ez - es)
+	flux = CE * rho * uz * 0.622 / P * (ez - es)
+	flux = Lv * flux if flux > 0 else Ls * flux  # latent heats for positive and negative fluxes are different!
+
+	return flux
 
 
 def _calc_turb_exchange_coef(z, L=None):
