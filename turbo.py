@@ -48,11 +48,11 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False)
 	:param rel_humidity: relative humidity of the air at the height of z [from 0.0 to 1.0]
 	:param max_iter: maximum number of iterations to define Monin-Obukhov stability length [integer]
 	:param verbose: shows result of every iteration [True/False]
-	:return: a tuple (sensible_heat_flux, latent_heat_flux) in [W m-2]
+	:return: a tuple (sensible_heat_flux, latent_heat_flux, monin_obukhov_length) in [W m-2] and [m]
 	"""
 	sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
 	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length)
-	return sensible_flux, latent_flux
+	return sensible_flux, latent_flux, monin_obukhov_length
 
 
 def _get_dry_air_density(t_air, p_air):
