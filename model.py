@@ -2,6 +2,8 @@ import gdal
 import numpy as np
 import matplotlib.pyplot as plt
 from turbo import calc_turbulent_fluxes
+from turbo import _calc_e_max
+from turbo import _calc_sensible, _calc_latent
 
 
 class Energy:
@@ -20,7 +22,7 @@ class Energy:
 
 		print("Loading insolation map...")
 		self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
-		debug_imshow(self.potential_incoming_radiation, "Total potential incoming radiation (not used)")
+		debug_imshow(self.potential_incoming_radiation, "Total potential incoming radiation kW*h month-1")
 
 	def __init_constants(self):
 		self.CONST = {
@@ -55,22 +57,50 @@ class Energy:
 
 	def calc_heat_influx(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, elev_aws):
 		t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
-		t_air = self.interpolate_air_t(t_air_aws, elev_aws)
-		debug_imshow(t_air, title="Air temperature, degree Celsius")
 
-		rl = self.calc_longwave(t_air, t_surf, cloudiness)
-		debug_imshow(rl, title="Longwave")
+		# we need four numpy arrays with meteorological values:
+		t_air_array = self.interpolate_air_t(t_air_aws, elev_aws)
+		debug_imshow(t_air_array, title="Air temperature, degree Celsius")
 
-		sensible_flux, latent_flux = calc_turbulent_fluxes(self.z, self.wind_speed, self.Tz, self.P, self.rel_humidity)
+		wind_speed_array = self.fill_array_with_one_value(wind_speed)  # wind speed is non-distributed and assumed constant across the surface
+		debug_imshow(wind_speed_array, title="Wind speed")
+
+		air_pressure_array = self.interpolate_pressure(air_pressure, elev_aws)
+		debug_imshow(air_pressure_array, title="Air pressure")
+
+		e_aws = _calc_e_max(t_air_aws + 273.15, air_pressure * 100) * rel_humidity  # this is partial pressure of water vapour at the AWS
+		# print("Emax at AWS is %.3f" % _calc_e_max(t_air_aws + 273.15, air_pressure * 100))
+		e_array = self.interpolate_e(e_aws, elev_aws)
+		# print("E at AWS is %.3f" % e_aws)
+		debug_imshow(e_array, title="Partial pressure of water vapour")
+		e_max_array = _calc_e_max(t_air_array + 273.15, air_pressure_array * 100)
+		debug_imshow(e_max_array, title="Partial pressure of saturated air (e_max)")
+		rel_humidity_array = e_array / e_max_array
+		debug_imshow(rel_humidity_array, title="Relative humidity")
+
+		sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed, self.Tz, self.P, self.rel_humidity)
 		print("Sensible heat flux is %.1f W m-2" % sensible_flux)
 		print("Latent heat flux is %.1f W m-2" % latent_flux)
 
-		sensible_flux_array = self.fill_array_with_one_value(sensible_flux)
-		latent_flux_array = self.fill_array_with_one_value(latent_flux)
+		# sensible_flux_array = self.fill_array_with_one_value(sensible_flux)
+		# latent_flux_array = self.fill_array_with_one_value(latent_flux)
+
+		sensible_flux_array = _calc_sensible(z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, L=monin_obukhov_length)
+		latent_flux_array = _calc_latent(z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, rel_humidity_array, L=monin_obukhov_length)
 		debug_imshow(sensible_flux_array, title="Sensible heat flux")
 		debug_imshow(latent_flux_array, title="Latent heat flux")
 
-		rs = self.calc_shortwave(incoming_shortwave)
+		# LONGWAVE RADIATION FLUX
+		rl = self.calc_longwave(t_air_array, t_surf, cloudiness)
+		debug_imshow(rl, title="Longwave")
+
+		# SHORTWAVE RADIATION FLUX
+		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
+		self.incoming_shortwave = self.incoming_shortwave * 0.5 / 30  # 30 days
+		debug_imshow(self.incoming_shortwave, title="Real incoming solar radiation")
+
+		rs = self.calc_shortwave(self.incoming_shortwave)
+		debug_imshow(rs, title="Incoming shortwave * (1 - albedo)")
 
 		return rl + rs + sensible_flux_array + latent_flux_array
 
@@ -106,7 +136,7 @@ class Energy:
 			array[array < 0] = np.nan  # makes sense for albedo which couldn't be negative
 		if remove_outliers:
 			array[array > 1] = np.nan
-		print(array.shape)
+		print("Raster size is %dx%d" % array.shape)
 		return array
 
 	@staticmethod
@@ -134,14 +164,32 @@ class Energy:
 		"""
 		return insol / 86400
 
+	def interpolate_e(self, e, elev):
+		"""
+		Interpolates partial pressure of water vapour (e)
+		from measured at the AWS at the given elevation
+		:param e:
+		:param elev:
+		:return:
+		"""
+		delta_elev = self.base_dem_array - elev
+		return e * 10**(-delta_elev / 6300)
+
 	def interpolate_air_t(self, t_air, elev, v_gradient=None):
 		if v_gradient is None:
 			v_gradient = -0.006  # 6 degrees Celsius or Kelvin per 1 m
 		return self.interpolate_on_dem(t_air, elev, v_gradient)
 
 	def interpolate_pressure(self, pressure, elev, v_gradient=None):
+		"""
+
+		:param pressure: in hPa
+		:param elev:
+		:param v_gradient:
+		:return:
+		"""
 		if v_gradient is None:
-			v_gradient = -0.1145  # hPa per 1 m
+			v_gradient = -0.1145  # Pa per 1 m
 		return self.interpolate_on_dem(pressure, elev, v_gradient)
 
 	def interpolate_on_dem(self, value, elev, v_gradient):
