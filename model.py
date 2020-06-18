@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from turbo import calc_turbulent_fluxes
 from turbo import _calc_e_max
-from turbo import _calc_sensible, _calc_latent
 
 
 class Energy:
@@ -85,7 +84,9 @@ class Energy:
 		# at the whole glacier surface:
 		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, rel_humidity_array, L=monin_obukhov_length)
 		debug_imshow(sensible_flux_array, title="Sensible heat flux")
+		self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
 		debug_imshow(latent_flux_array, title="Latent heat flux")
+		self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
 		rl = self.calc_longwave(t_air_array, t_surf, cloudiness)
@@ -121,10 +122,11 @@ class Energy:
 		lwd = (0.765 + 0.22 * cloudiness ** 3) * 5.669 * 10 ** -8 * to_kelvin(t_air) ** 4
 		return lwd - lwu
 
-	@staticmethod
-	def _load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=False):
+	def _load_raster(self, raster_path, crop_path, remove_negatives=False, remove_outliers=False):
 		ds = gdal.Open(raster_path)
 		crop_ds = gdal.Warp("", ds, dstSRS="+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs", format="VRT", cutlineDSName=crop_path, cropToCutline=True, outputType=gdal.GDT_Float32, xRes=10, yRes=10)
+		self.geotransform = crop_ds.GetGeoTransform()
+		self.projection = crop_ds.GetProjection()
 		band = crop_ds.GetRasterBand(1)
 		nodata = band.GetNoDataValue()
 		array = band.ReadAsArray()
@@ -135,6 +137,34 @@ class Energy:
 			array[array > 1] = np.nan
 		print("Raster size is %dx%d" % array.shape)
 		return array
+
+	def _export_array_as_geotiff(self, array_to_export, path, scale_mult=None):
+		array = np.copy(array_to_export)  # to avoid modification of original array
+
+		if scale_mult is not None:
+			array = array * scale_mult
+			array = np.rint(array)
+			nodata = -32768
+			gdt_type = gdal.GDT_Int16
+		else:
+			nodata = -9999
+			gdt_type = gdal.GDT_Float32
+
+		array[np.isnan(array)] = nodata
+
+		driver = gdal.GetDriverByName("GTiff")
+
+		ds = driver.Create(path, array.shape[1], array.shape[0], 1, gdt_type)
+		ds.SetGeoTransform(self.geotransform)
+		ds.SetProjection(self.projection)
+
+		band = ds.GetRasterBand(1)
+		band.SetNoDataValue(nodata)
+		band.WriteArray(array)
+		band.FlushCache()
+		ds = None
+
+		return path
 
 	@staticmethod
 	def show_me(array):
