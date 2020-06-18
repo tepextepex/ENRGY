@@ -28,14 +28,14 @@ CONST = {
 	"g": 9.81,  # acceleration due to the gravity [m s-2]
 	"specific_heat_capacity": 1010,  # ...of an air [J kg-1 K-1]
 	"Ts": 0 + 273.15,  # the absolute temperature of melting ice/snow surface [K]
-	"es": 611,  # water vapour pressure at the ice surface [Pa]
+	"es": 611,  # water vapour pressure at the melting ice/snow surface [Pa]
 	"latent_heat_vaporization": 2.514 * 10**6,  # latent heat of water vaporization [J kg-1]
 	"latent_heat_sublimation": 2.849 * 10**6,  # latent heat of water ice sublimation [J kg-1]
 	"zm": 0.01  # (empirical) roughness length for momentum (for wind) [m]
 }
 
 
-def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False):
+def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, max_iter=5, verbose=False):
 	"""
 	Computes turbulent heat fluxes based on the bulk aerodynamic method.
 	Monin-Obukhov stability length is defined from iterative process with initial assumption of z/L=0
@@ -50,8 +50,14 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=False)
 	:param verbose: shows result of every iteration [True/False]
 	:return: a tuple (sensible_heat_flux, latent_heat_flux, monin_obukhov_length) in [W m-2] and [m]
 	"""
-	sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
+	if L is None:
+		sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
+	else:
+		monin_obukhov_length = L
+		sensible_flux = _calc_sensible(z, uz, Tz, P, L=monin_obukhov_length)
+
 	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length)
+
 	return sensible_flux, latent_flux, monin_obukhov_length
 
 
@@ -150,7 +156,17 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 	CE = _calc_turb_exchange_coef(z, L=L)
 
 	flux = CE * rho * uz * 0.622 / P * (ez - es)
-	flux = Lv * flux if flux > 0 else Ls * flux  # latent heats for positive and negative fluxes are different!
+
+	# latent heats for positive and negative fluxes are different!
+	# but we should handle numpy arrays and float inputs a little bit differently:
+	# modifying the same array you are iterating over is BAD, but
+	# Lv and Ls coefficients are strictly positive, therefore they do not change the sign of values into original flux array:
+	if type(flux) == np.ndarray:
+		flux[flux > 0] *= Lv
+		flux[flux < 0] *= Ls
+		# you'll get "RuntimeWarning: invalid value encountered in greater" dut to np.nan values - never mind
+	else:
+		flux = Lv * flux if flux > 0 else Ls * flux
 
 	return flux
 
