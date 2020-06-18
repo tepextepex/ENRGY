@@ -38,7 +38,7 @@ CONST = {
 def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, max_iter=5, verbose=False):
 	"""
 	Computes turbulent heat fluxes based on the bulk aerodynamic method.
-	Monin-Obukhov stability length is defined from iterative process with initial assumption of z/L=0
+	Monin-Obukhov stability length L, if unknown,  is defined from iterative process with initial assumption of z/L=0
 	Turbulent processes parametrization for stable atmosphere follows Beljaars and Holtslag (1991)
 
 	:param z: height of measurements above the surface, usually 2m [m]
