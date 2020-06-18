@@ -78,15 +78,12 @@ class Energy:
 		rel_humidity_array = e_array / e_max_array
 		debug_imshow(rel_humidity_array, title="Relative humidity")
 
+		# TURBULENT HEAT FLUXES
+		# at the AWS:
 		sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed, self.Tz, self.P, self.rel_humidity)
-		print("Sensible heat flux is %.1f W m-2" % sensible_flux)
-		print("Latent heat flux is %.1f W m-2" % latent_flux)
 
-		# sensible_flux_array = self.fill_array_with_one_value(sensible_flux)
-		# latent_flux_array = self.fill_array_with_one_value(latent_flux)
-
-		sensible_flux_array = _calc_sensible(z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, L=monin_obukhov_length)
-		latent_flux_array = _calc_latent(z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, rel_humidity_array, L=monin_obukhov_length)
+		# at the whole glacier surface:
+		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, rel_humidity_array, L=monin_obukhov_length)
 		debug_imshow(sensible_flux_array, title="Sensible heat flux")
 		debug_imshow(latent_flux_array, title="Latent heat flux")
 
