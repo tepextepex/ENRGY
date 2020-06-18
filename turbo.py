@@ -250,8 +250,9 @@ if __name__ == "__main__":
 	P = 99000  # Pascals
 	rel_humidity = 0.85
 	############################
-	QH, QE = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=True)
+	QH, QE, L = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=True)
 	print("******************")
-	print("Final result:")
+	print("FINAL RESULT:")
 	print("Sensible heat flux is %.1f W m-2" % QH)
 	print("Latent heat flux is %.1f W m-2" % QE)
+	print("Monin-Obukhov stability length is %.1f m" % L)
