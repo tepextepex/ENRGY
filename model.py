@@ -8,7 +8,7 @@ from turbo import _calc_e_max
 class Energy:
 	def __init__(self, base_dem_path, glacier_outlines_path, albedo_path, potential_incoming_radiation_path):
 
-		self.__init_constants()
+		self._init_constants()
 
 		self.outlines_path = glacier_outlines_path
 
@@ -23,7 +23,7 @@ class Energy:
 		self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
 		show_me(self.potential_incoming_radiation, "Total potential incoming radiation", units="kW*h month-1")
 
-	def __init_constants(self):
+	def _init_constants(self):
 		self.CONST = {
 			"ice_density": 916.7,  # kg m-3
 			"latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
@@ -43,83 +43,74 @@ class Energy:
 		self.Tz = self.t_air_aws + 273.15
 		self.P = self.air_pressure * 100  # Pascals from hPa
 
+		self.t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
+		self.distribute_aws_to_surface()
+
 	def run(self, days):
-		# heat available for melt:
-		Qm = self.calc_heat_influx(self.t_air_aws, self.wind_speed, self.rel_humidity, self.air_pressure, self.cloudiness, self.incoming_shortwave, self.z, self.elev_aws)
+		Qm = self.calc_heat_influx()  # heat available for melt:
 		show_me(Qm, title="Heat available for melt", units="W m-2")
 
-		# amount of ice which was melt:
-		ice_density = self.CONST["ice_density"]
-		ice_melt = self.calc_ice_melt(Qm, ice_density, days)
+		ice_melt = self.calc_ice_melt(Qm, days)
 		show_me(ice_melt, title="Ice melt", units="m w.e.")
+
 		return ice_melt
 
-	def calc_heat_influx(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, elev_aws):
-		t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
-
-		# we need four numpy arrays with meteorological values:
-		t_air_array = self.interpolate_air_t(t_air_aws, elev_aws)
-		show_me(t_air_array, title="Air temperature", units="degree Celsius")
-
-		wind_speed_array = self.fill_array_with_one_value(wind_speed)  # wind speed is non-distributed and assumed constant across the surface
-		show_me(wind_speed_array, title="Wind speed", units="m s-1")
-
-		air_pressure_array = self.interpolate_pressure(air_pressure, elev_aws)
-		show_me(air_pressure_array, title="Air pressure", units="gPa")
-
-		e_aws = _calc_e_max(t_air_aws + 273.15, air_pressure * 100) * rel_humidity  # this is partial pressure of water vapour at the AWS
-		# print("Emax at AWS is %.3f" % _calc_e_max(t_air_aws + 273.15, air_pressure * 100))
-		e_array = self.interpolate_e(e_aws, elev_aws)
-		# print("E at AWS is %.3f" % e_aws)
-		show_me(e_array, title="Partial pressure of water vapour", units="Pa")
-		e_max_array = _calc_e_max(t_air_array + 273.15, air_pressure_array * 100)
-		show_me(e_max_array, title="Partial pressure of saturated air (e_max)", units="Pa")
-		rel_humidity_array = e_array / e_max_array
-		show_me(rel_humidity_array, title="Relative humidity")
-
+	def calc_heat_influx(self):
+		"""
+		Computes an amount of heat available for melt
+		:return: heat flux [W m-2]
+		"""
 		# TURBULENT HEAT FLUXES
-		# at the AWS:
+		# at the AWS (needed to know Monin-Obukhov length L):
 		sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed, self.Tz, self.P, self.rel_humidity)
 
 		# at the whole glacier surface:
-		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, wind_speed_array, t_air_array + 273.15, air_pressure_array * 100, rel_humidity_array, L=monin_obukhov_length)
+		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed_array, self.t_air_array + 273.15, self.air_pressure_array * 100, self.rel_humidity_array, L=monin_obukhov_length)
+
 		show_me(sensible_flux_array, title="Sensible heat flux", units="W m-2")
 		self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
+
 		show_me(latent_flux_array, title="Latent heat flux", units="W m-2")
 		self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
-		rl = self.calc_longwave(t_air_array, t_surf, cloudiness)
+		rl = self.calc_longwave()
 		show_me(rl, title="Longwave", units="W m-2")
 
 		# SHORTWAVE RADIATION FLUX
-		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
-		self.incoming_shortwave = self.incoming_shortwave * 0.5 / 30  # 30 days
-		show_me(self.incoming_shortwave, title="Real incoming solar radiation", units="W m-2")
-
-		rs = self.calc_shortwave(self.incoming_shortwave)
+		rs = self.calc_shortwave()
 		show_me(rs, title="Incoming shortwave * (1 - albedo)", units="W m-2")
 
 		return rl + rs + sensible_flux_array + latent_flux_array
 
-	def calc_shortwave(self, incoming_shortwave):
-		return incoming_shortwave * (1 - self.albedo)
+	def calc_shortwave(self):
+		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
+		# potential incoming solar radiation into real:
+		self.incoming_shortwave = self.incoming_shortwave * 0.5 / 30  # 30 days
+		show_me(self.incoming_shortwave, title="Real incoming solar radiation", units="W m-2")
+		return self.incoming_shortwave * (1 - self.albedo)
 
-	def calc_ice_melt(self, ice_heat_influx, ice_density, days):
+	def calc_ice_melt(self, ice_heat_influx, days):
 		"""
-
+		Computes a melt ice layer [m w.e.]
 		:param ice_heat_influx:
-		:param ice_density: assumed ice density kg per cibic meter
 		:param days: number of days
 		:return: thickness of melt ice layer in meters w.e.
 		"""
 		latent_heat_of_fusion = self.CONST["latent_heat_of_fusion"]
-		return (ice_heat_influx * 86400) / (ice_density * latent_heat_of_fusion) * days
+		ice_density = self.CONST["ice_density"]
+		ice_melt = (ice_heat_influx * 86400) / (ice_density * latent_heat_of_fusion) * days
 
-	@staticmethod
-	def calc_longwave(t_air, t_surf, cloudiness):
-		lwu = 0.98 * 5.669 * 10 ** -8 * to_kelvin(t_surf) ** 4
-		lwd = (0.765 + 0.22 * cloudiness ** 3) * 5.669 * 10 ** -8 * to_kelvin(t_air) ** 4
+		if type(ice_melt) == np.ndarray:
+			ice_melt[ice_melt < 0] = 0  # since negative ice melt (i.e. ice accumulation) is not possible
+		else:
+			ice_melt = 0 if ice_melt < 0 else ice_melt
+
+		return ice_melt
+
+	def calc_longwave(self):
+		lwu = 0.98 * 5.669 * 10 ** -8 * to_kelvin(self.t_surf) ** 4
+		lwd = (0.765 + 0.22 * self.cloudiness ** 3) * 5.669 * 10 ** -8 * to_kelvin(self.t_air_array) ** 4
 		return lwd - lwu
 
 	def _load_raster(self, raster_path, crop_path, remove_negatives=False, remove_outliers=False):
@@ -183,6 +174,31 @@ class Energy:
 		:return:
 		"""
 		return insol / 86400
+
+	def distribute_aws_to_surface(self):
+		"""
+		Takes meteorological values measured at the AWS and interpolates them over
+		the whole glacier surface based on vertical gradients and DEM
+		:return:
+		"""
+		self.t_air_array = self.interpolate_air_t(self.t_air_aws, self.elev_aws)
+		show_me(self.t_air_array, title="Air temperature", units="degree Celsius")
+
+		self.wind_speed_array = self.fill_array_with_one_value(self.wind_speed)  # wind speed is non-distributed and assumed constant across the surface
+		show_me(self.wind_speed_array, title="Wind speed", units="m s-1")
+
+		self.air_pressure_array = self.interpolate_pressure(self.air_pressure, self.elev_aws)
+		show_me(self.air_pressure_array, title="Air pressure", units="gPa")
+
+		e_aws = self.rel_humidity * _calc_e_max(self.t_air_aws + 273.15, self.air_pressure * 100)  # this is partial pressure of water vapour at the AWS
+		e_array = self.interpolate_e(e_aws, self.elev_aws)
+		show_me(e_array, title="Partial pressure of water vapour", units="Pa")
+
+		e_max_array = _calc_e_max(self.t_air_array + 273.15, self.air_pressure_array * 100)
+		show_me(e_max_array, title="Partial pressure of saturated air (e_max)", units="Pa")
+
+		self.rel_humidity_array = e_array / e_max_array
+		show_me(self.rel_humidity_array, title="Relative humidity")
 
 	def interpolate_e(self, e, elev):
 		"""
