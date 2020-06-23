@@ -14,4 +14,10 @@ Not included yet:
 * ground heat flux
 * sensible heat flux of rain
 
-Input data are meteorological observations from AWS at the glacier surface, albedo map and DEM.
+Input data are meteorological observations from AWS at the glacier surface, DEM, albedo map and a potential incoming solar radiation grid (PISR). Albedo and PISR now should be prepared outside the model.
+
+##### Prerequisutes
+The model script uses:
+* gdal
+* numpy
+* matplotlib
