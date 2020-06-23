@@ -1,8 +1,11 @@
+import os
 import gdal
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 from turbo import calc_turbulent_fluxes
 from turbo import _calc_e_max
+from interpolator import interpolate_array
 
 
 class Energy:
@@ -17,9 +20,10 @@ class Energy:
 
 		print("Loading albedo map...")
 		self.albedo = self._load_raster(albedo_path, self.outlines_path, remove_outliers=True)
-		show_me(self.albedo, "Albedo grid")
+		# show_me(self.albedo, "Albedo grid")
 
 		print("Loading insolation map...")
+		self.potential_incoming_sr_path = potential_incoming_radiation_path
 		self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
 		show_me(self.potential_incoming_radiation, "Total potential incoming radiation", units="kW*h month-1")
 
@@ -30,15 +34,40 @@ class Energy:
 			"g": 9.81
 		}
 
-	def set_aws_data(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, elev_aws):
+	def model(self, aws_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None):
+		if (aws_file is not None) and (albedo_maps is not None):
+
+			# loading albedo maps from geotiff files into arrays:
+			self.albedo_arrays = {}
+			for key in albedo_maps:  # albedo_maps contains file paths
+				self.albedo_arrays[key] = self._load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True)
+
+			with open(aws_file) as csvfile:
+				reader = csv.DictReader(csvfile)
+				for row in reader:
+					print("Processing %s..." % row["DATE"])
+					self.current_date_str = row["DATE"]
+					# setting AWS measurements data for the current date:
+					self.set_aws_data(float(row["T_AIR"]), float(row["WIND_SPEED"]), float(row["REL_HUMIDITY"]), float(row["AIR_PRESSURE"]),
+									float(row["CLOUDINESS"]), float(row["INCOMING_SHORTWAVE"]), z, elev_aws, xy_aws)
+					# interpolating albedo map for the current date:
+					self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
+					show_me(self.albedo, title="%s albedo" % self.current_date_str)
+
+					# self.potential_to_real_insolation_factor()  # testing, delete this
+					result = self.run()
+					print("Mean ice melt: %.3f m w.e." % np.nanmean(result))
+
+	def set_aws_data(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, elev_aws, xy_aws):
 		self.t_air_aws = t_air_aws
 		self.wind_speed = wind_speed
 		self.rel_humidity = rel_humidity
 		self.air_pressure = air_pressure
 		self.cloudiness = cloudiness
-		self.incoming_shortwave = incoming_shortwave
+		self.incoming_shortwave_aws = incoming_shortwave
 		self.z = z
 		self.elev_aws = elev_aws
+		self.xy_aws = xy_aws
 
 		self.Tz = self.t_air_aws + 273.15
 		self.P = self.air_pressure * 100  # Pascals from hPa
@@ -46,12 +75,12 @@ class Energy:
 		self.t_surf = 0  # we assume that surface of melting ice is 0 degree Celsius
 		self.distribute_aws_to_surface()
 
-	def run(self, days):
+	def run(self):
 		Qm = self.calc_heat_influx()  # heat available for melt:
-		show_me(Qm, title="Heat available for melt", units="W m-2")
+		show_me(Qm, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
 
-		ice_melt = self.calc_ice_melt(Qm, days)
-		show_me(ice_melt, title="Ice melt", units="m w.e.")
+		ice_melt = self.calc_ice_melt(Qm)
+		show_me(ice_melt, title="%s Ice melt" % self.current_date_str, units="m w.e.")
 
 		return ice_melt
 
@@ -67,39 +96,60 @@ class Energy:
 		# at the whole glacier surface:
 		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed_array, self.t_air_array + 273.15, self.air_pressure_array * 100, self.rel_humidity_array, L=monin_obukhov_length)
 
-		show_me(sensible_flux_array, title="Sensible heat flux", units="W m-2")
+		show_me(sensible_flux_array, title="%s Sensible heat flux" % self.current_date_str, units="W m-2")
 		self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
 
-		show_me(latent_flux_array, title="Latent heat flux", units="W m-2")
+		show_me(latent_flux_array, title="%s Latent heat flux" % self.current_date_str, units="W m-2")
 		self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
 		rl = self.calc_longwave()
-		show_me(rl, title="Longwave", units="W m-2")
+		show_me(rl, title="%s Longwave" % self.current_date_str, units="W m-2")
 
 		# SHORTWAVE RADIATION FLUX
 		rs = self.calc_shortwave()
-		show_me(rs, title="Incoming shortwave * (1 - albedo)", units="W m-2")
+		show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
 
 		return rl + rs + sensible_flux_array + latent_flux_array
 
 	def calc_shortwave(self):
-		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
+		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation)) / 30  # 30 days
 		# potential incoming solar radiation into real:
-		self.incoming_shortwave = self.incoming_shortwave * 0.5 / 30  # 30 days
-		show_me(self.incoming_shortwave, title="Real incoming solar radiation", units="W m-2")
+		self.incoming_shortwave *= self.potential_to_real_insolation_factor()
+		show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str, units="W m-2")
 		return self.incoming_shortwave * (1 - self.albedo)
 
-	def calc_ice_melt(self, ice_heat_influx, days):
+	def potential_to_real_insolation_factor(self):
+		"""
+		SUPER-DUPER-PRECISE empirical (NO) coefficient
+		:return:
+		"""
+		# should compute factor based on a self.incoming_shortwave_aws and on a correspinding pixel of self.incoming_shortwave
+		aws_x = self.xy_aws[0]
+		aws_y = self.xy_aws[1]
+		query = 'gdallocationinfo -valonly -geoloc "%s" %s %s' % (self.potential_incoming_sr_path, aws_x, aws_y)
+
+		potential_at_aws = float(os.popen(query).read())
+		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws)) / 30
+		print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
+
+		real_at_aws = self.incoming_shortwave_aws
+		print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
+
+		factor = real_at_aws / potential_at_aws
+		print("Scale factor for solar radiation is %.2f" % factor)
+
+		return factor
+
+	def calc_ice_melt(self, ice_heat_influx):
 		"""
 		Computes a melt ice layer [m w.e.]
 		:param ice_heat_influx:
-		:param days: number of days
 		:return: thickness of melt ice layer in meters w.e.
 		"""
 		latent_heat_of_fusion = self.CONST["latent_heat_of_fusion"]
 		ice_density = self.CONST["ice_density"]
-		ice_melt = (ice_heat_influx * 86400) / (ice_density * latent_heat_of_fusion) * days
+		ice_melt = (ice_heat_influx * 86400) / (ice_density * latent_heat_of_fusion)
 
 		if type(ice_melt) == np.ndarray:
 			ice_melt[ice_melt < 0] = 0  # since negative ice melt (i.e. ice accumulation) is not possible
@@ -182,23 +232,23 @@ class Energy:
 		:return:
 		"""
 		self.t_air_array = self.interpolate_air_t(self.t_air_aws, self.elev_aws)
-		show_me(self.t_air_array, title="Air temperature", units="degree Celsius")
+		show_me(self.t_air_array, title="%s Air temperature" % self.current_date_str, units="degree Celsius")
 
 		self.wind_speed_array = self.fill_array_with_one_value(self.wind_speed)  # wind speed is non-distributed and assumed constant across the surface
-		show_me(self.wind_speed_array, title="Wind speed", units="m s-1")
+		show_me(self.wind_speed_array, title="%s Wind speed" % self.current_date_str, units="m s-1")
 
 		self.air_pressure_array = self.interpolate_pressure(self.air_pressure, self.elev_aws)
-		show_me(self.air_pressure_array, title="Air pressure", units="gPa")
+		show_me(self.air_pressure_array, title="%s Air pressure" % self.current_date_str, units="hPa")
 
 		e_aws = self.rel_humidity * _calc_e_max(self.t_air_aws + 273.15, self.air_pressure * 100)  # this is partial pressure of water vapour at the AWS
 		e_array = self.interpolate_e(e_aws, self.elev_aws)
-		show_me(e_array, title="Partial pressure of water vapour", units="Pa")
+		show_me(e_array, title="%s Partial pressure of water vapour" % self.current_date_str, units="Pa")
 
 		e_max_array = _calc_e_max(self.t_air_array + 273.15, self.air_pressure_array * 100)
-		show_me(e_max_array, title="Partial pressure of saturated air (e_max)", units="Pa")
+		show_me(e_max_array, title="%s Partial pressure of saturated air" % self.current_date_str, units="Pa")
 
 		self.rel_humidity_array = e_array / e_max_array
-		show_me(self.rel_humidity_array, title="Relative humidity")
+		show_me(self.rel_humidity_array, title="%s Relative humidity" % self.current_date_str)
 
 	def interpolate_e(self, e, elev):
 		"""
