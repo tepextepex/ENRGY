@@ -9,7 +9,7 @@ from interpolator import interpolate_array
 
 
 class Energy:
-	def __init__(self, base_dem_path, glacier_outlines_path, albedo_path, potential_incoming_radiation_path):
+	def __init__(self, base_dem_path, glacier_outlines_path, potential_incoming_radiation_path):
 
 		self._init_constants()
 
@@ -18,14 +18,10 @@ class Energy:
 		print("Loading base DEM...")
 		self.base_dem_array = self._load_raster(base_dem_path, self.outlines_path)
 
-		print("Loading albedo map...")
-		self.albedo = self._load_raster(albedo_path, self.outlines_path, remove_outliers=True)
-		# show_me(self.albedo, "Albedo grid")
-
 		print("Loading insolation map...")
 		self.potential_incoming_sr_path = potential_incoming_radiation_path
 		self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
-		show_me(self.potential_incoming_radiation, "Total potential incoming radiation", units="kW*h month-1")
+		show_me(self.potential_incoming_radiation, "Potential incoming sr", units="kW*h month-1")
 
 	def _init_constants(self):
 		self.CONST = {
@@ -34,7 +30,7 @@ class Energy:
 			"g": 9.81
 		}
 
-	def model(self, aws_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None):
+	def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None):
 		if (aws_file is not None) and (albedo_maps is not None):
 
 			# loading albedo maps from geotiff files into arrays:
@@ -42,23 +38,40 @@ class Energy:
 			for key in albedo_maps:  # albedo_maps contains file paths
 				self.albedo_arrays[key] = self._load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True)
 
+			# creates an array to store a total mel over the period:
+			self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
+			self.modelled_days = 0
+
+			output = open(out_file, "w")
+			output.write("DATE,MELT_M_WE")  # header
+
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
 				for row in reader:
+
 					print("Processing %s..." % row["DATE"])
 					self.current_date_str = row["DATE"]
+
 					# setting AWS measurements data for the current date:
 					r_hum = self.heuristic_unit_guesser(float(row["REL_HUMIDITY"]), 100)
 					cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)
 					self.set_aws_data(float(row["T_AIR"]), float(row["WIND_SPEED"]), r_hum, float(row["AIR_PRESSURE"]),
 									cld, float(row["INCOMING_SHORTWAVE"]), z, elev_aws, xy_aws)
+
 					# interpolating albedo map for the current date:
 					self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
 					show_me(self.albedo, title="%s albedo" % self.current_date_str)
 
-					# self.potential_to_real_insolation_factor()  # testing, delete this
 					result = self.run()
-					print("Mean ice melt: %.3f m w.e." % np.nanmean(result))
+					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
+					output.write("\n%s,%.3f" % (self.current_date_str, np.nanmean(result)))
+
+					self.total_melt_array += result
+					self.modelled_days += 1
+
+			output.close()
+			show_me(self.total_melt_array, title="Total melt over the period (%d days)" % self.modelled_days, units="m w.e.")
+			self._export_array_as_geotiff(self.total_melt_array, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
 
 	@staticmethod
 	def heuristic_unit_guesser(value, scale=10):
@@ -117,10 +130,10 @@ class Energy:
 		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(self.z, self.wind_speed_array, self.t_air_array + 273.15, self.air_pressure_array * 100, self.rel_humidity_array, L=monin_obukhov_length)
 
 		show_me(sensible_flux_array, title="%s Sensible heat flux" % self.current_date_str, units="W m-2")
-		self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
+		# self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
 
 		show_me(latent_flux_array, title="%s Latent heat flux" % self.current_date_str, units="W m-2")
-		self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
+		# self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
 		rl = self.calc_longwave()
@@ -151,13 +164,13 @@ class Energy:
 
 		potential_at_aws = float(os.popen(query).read())
 		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws)) / 30
-		print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
+		# print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
 
 		real_at_aws = self.incoming_shortwave_aws
-		print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
+		# print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
 
 		factor = real_at_aws / potential_at_aws
-		print("Scale factor for solar radiation is %.2f" % factor)
+		# print("Scale factor for solar radiation is %.2f" % factor)
 
 		return factor
 
