@@ -2,23 +2,17 @@ import numpy as np
 from datetime import datetime
 
 
-input_arrays = {
-	"20190727": np.arange(16).reshape(4, 4),
-	"20190803": np.arange(4, 20).reshape(4, 4)
-}
-
-needed_date = "20190731"
-# needed_date = "20190710"
-
-
 def interpolate_array(arrays_dict, needed_date):
 	needed_date = datetime.strptime(needed_date, "%Y%m%d")
 	before, after = _get_closest_dates(arrays_dict, needed_date)
 
-	ar0 = input_arrays[before.strftime("%Y%m%d")]
-	ar1 = input_arrays[after.strftime("%Y%m%d")]
+	ar0 = arrays_dict[before.strftime("%Y%m%d")]
+	ar1 = arrays_dict[after.strftime("%Y%m%d")]
 
-	result = ar0 + (needed_date - before).days * (ar1 - ar0) / (after - before).days  # just a linear interpolation
+	if (after - before).days == 0:
+		result = ar0  # it means that needed date is one of the dates in input_arrays and does not need to be interpolated
+	else:
+		result = ar0 + (needed_date - before).days * (ar1 - ar0) / (after - before).days  # just a linear interpolation
 
 	return result
 
@@ -29,8 +23,8 @@ def _get_closest_dates(arrays_dict, needed_date):
 
 	dates = [datetime.strptime(date_str, "%Y%m%d") for date_str in [*arrays_dict]]  # [*arrays_dict] returns a list containing keys from input dict
 
-	dates_before = [date for date in dates if date < needed_date]
-	dates_after = [date for date in dates if date > needed_date]
+	dates_before = [date for date in dates if date <= needed_date]
+	dates_after = [date for date in dates if date >= needed_date]
 
 	if len(dates_before) == 0 or len(dates_after) == 0:
 		raise ValueError("Passed date is outside of the possible interpolation range!")
@@ -42,5 +36,14 @@ def _get_closest_dates(arrays_dict, needed_date):
 
 
 if __name__ == "__main__":
+
+	input_arrays = {
+		"20190727": np.arange(16).reshape(4, 4),
+		"20190803": np.arange(4, 20).reshape(4, 4)
+	}
+
+	# needed_date = "20190731"  # valid input
+	# needed_date = "20190710"  # invalid, out of interpolation range
+	needed_date = "20190727"  # valid, but is one of interpolation bounds
 	# print(_get_closest_dates(input_arrays, needed_date))
-	interpolate_array(input_arrays, needed_date)
+	print(interpolate_array(input_arrays, needed_date))
