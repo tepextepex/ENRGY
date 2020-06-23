@@ -48,8 +48,10 @@ class Energy:
 					print("Processing %s..." % row["DATE"])
 					self.current_date_str = row["DATE"]
 					# setting AWS measurements data for the current date:
-					self.set_aws_data(float(row["T_AIR"]), float(row["WIND_SPEED"]), float(row["REL_HUMIDITY"]), float(row["AIR_PRESSURE"]),
-									float(row["CLOUDINESS"]), float(row["INCOMING_SHORTWAVE"]), z, elev_aws, xy_aws)
+					r_hum = self.heuristic_unit_guesser(float(row["REL_HUMIDITY"]), 100)
+					cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)
+					self.set_aws_data(float(row["T_AIR"]), float(row["WIND_SPEED"]), r_hum, float(row["AIR_PRESSURE"]),
+									cld, float(row["INCOMING_SHORTWAVE"]), z, elev_aws, xy_aws)
 					# interpolating albedo map for the current date:
 					self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
 					show_me(self.albedo, title="%s albedo" % self.current_date_str)
@@ -57,6 +59,24 @@ class Energy:
 					# self.potential_to_real_insolation_factor()  # testing, delete this
 					result = self.run()
 					print("Mean ice melt: %.3f m w.e." % np.nanmean(result))
+
+	@staticmethod
+	def heuristic_unit_guesser(value, scale=10):
+		"""
+		Converts value in percent to a 0-1 range (scale=100)
+		or cloudness in a range from 0 to 10 to a 0- range (scale=10)
+		:param value:
+		:param scale:
+		:return:
+		"""
+		if value > 1 and value <= scale:
+			return value / scale
+
+		elif value <= 1:
+			return value
+
+		else:
+			raise ValueError("Wrong value encountered")
 
 	def set_aws_data(self, t_air_aws, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, elev_aws, xy_aws):
 		self.t_air_aws = t_air_aws
