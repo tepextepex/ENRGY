@@ -26,6 +26,5 @@ elev_aws = 290
 xy_aws = (478342, 8655635)  # EPSG:32633
 #################
 e = Energy(arcticdem_path, glacier_outlines_path, albedo_path, potential_insolation_path)
-# e.set_aws_data(t_air, wind_speed, rel_humidity, air_pressure, cloudiness, incoming_shortwave, z, aws_coords[2])
-# e.run()
+
 e.model(aws_file=aws_file, albedo_maps=albedo_maps, z=1.6, elev_aws=elev_aws, xy_aws=xy_aws)
