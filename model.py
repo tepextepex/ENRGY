@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from turbo import calc_turbulent_fluxes
 from turbo import _calc_e_max
 from interpolator import interpolate_array
+from saga_lighting import simulate_lighting, cleanup_sgrd
 
 
 class Energy:
@@ -13,15 +14,16 @@ class Energy:
 
 		self._init_constants()
 
+		self.base_dem_path = base_dem_path
 		self.outlines_path = glacier_outlines_path
 
 		print("Loading base DEM...")
 		self.base_dem_array = self._load_raster(base_dem_path, self.outlines_path)
 
-		print("Loading insolation map...")
-		self.potential_incoming_sr_path = potential_incoming_radiation_path
-		self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
-		show_me(self.potential_incoming_radiation, "Potential incoming sr", units="kW*h month-1")
+		# print("Loading insolation map...")
+		# self.potential_incoming_sr_path = potential_incoming_radiation_path
+		# self.potential_incoming_radiation = self._load_raster(potential_incoming_radiation_path, self.outlines_path)
+		# show_me(self.potential_incoming_radiation, "Potential incoming sr", units="kW*h month-1")
 
 	def _init_constants(self):
 		self.CONST = {
@@ -43,7 +45,8 @@ class Energy:
 			self.modelled_days = 0
 
 			output = open(out_file, "w")
-			output.write("DATE,MELT_M_WE")  # header
+			output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES are in W m-2")
+			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,TURB_BALANCE")  # header
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
@@ -64,7 +67,8 @@ class Energy:
 
 					result = self.run()
 					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-					output.write("\n%s,%.3f" % (self.current_date_str, np.nanmean(result)))
+					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.tr_balance)))
+					output.write("\n%s,%.3f,%.1f,%.1f,%.1f" % stats)
 
 					self.total_melt_array += result
 					self.modelled_days += 1
@@ -143,13 +147,24 @@ class Energy:
 		rs = self.calc_shortwave()
 		show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
 
+		self.rl_balance = rl
+		self.rs_balance = rs
+		self.tr_balance = sensible_flux_array + latent_flux_array
+
 		return rl + rs + sensible_flux_array + latent_flux_array
 
 	def calc_shortwave(self):
-		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation)) / 30  # 30 days
+		# self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation)) / 30  # 30 days THAT WAS FOR A CONSTANT PISR (MEAN MONTHLY)
+		self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str)
+		self.potential_incoming_radiation = self._load_raster(self.potential_incoming_sr_path, self.outlines_path)
+		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
+		show_me(self.incoming_shortwave, title="%s Potential Incoming Solar Radiation" % self.current_date_str, units="W / m-2")
+
 		# potential incoming solar radiation into real:
 		self.incoming_shortwave *= self.potential_to_real_insolation_factor()
 		show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str, units="W m-2")
+		cleanup_sgrd(self.potential_incoming_sr_path)
+
 		return self.incoming_shortwave * (1 - self.albedo)
 
 	def potential_to_real_insolation_factor(self):
@@ -163,14 +178,14 @@ class Energy:
 		query = 'gdallocationinfo -valonly -geoloc "%s" %s %s' % (self.potential_incoming_sr_path, aws_x, aws_y)
 
 		potential_at_aws = float(os.popen(query).read())
-		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws)) / 30
-		# print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
+		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws))
+		print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
 
 		real_at_aws = self.incoming_shortwave_aws
-		# print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
+		print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
 
 		factor = real_at_aws / potential_at_aws
-		# print("Scale factor for solar radiation is %.2f" % factor)
+		print("Scale factor for solar radiation is %.2f" % factor)
 
 		return factor
 
@@ -336,7 +351,7 @@ def show_me(array, title=None, units=None, show=False, verbose=False):
 	try:
 		plt.imshow(array)
 		if verbose:
-			print("Mean %s is %.3f:" % (title, np.nanmean(array)))
+			print("Mean %s is %.3f:" % (title, float(np.nanmean(array))))
 		if title is not None:
 			plt.title(title)
 		cb = plt.colorbar()
