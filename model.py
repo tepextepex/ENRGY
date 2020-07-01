@@ -45,8 +45,8 @@ class Energy:
 			self.modelled_days = 0
 
 			output = open(out_file, "w")
-			output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES are in W m-2")
-			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,TURB_BALANCE")  # header
+			output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
+			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,TURB_BALANCE")  # header
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
@@ -67,8 +67,8 @@ class Energy:
 
 					result = self.run()
 					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.tr_balance)))
-					output.write("\n%s,%.3f,%.1f,%.1f,%.1f" % stats)
+					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.tr_balance)))
+					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f" % stats)
 
 					self.total_melt_array += result
 					self.modelled_days += 1
@@ -140,13 +140,16 @@ class Energy:
 		# self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
-		rl = self.calc_longwave()
+		lwd, lwu = self.calc_longwave()
+		rl = lwd - lwu
 		show_me(rl, title="%s Longwave" % self.current_date_str, units="W m-2")
 
 		# SHORTWAVE RADIATION FLUX
 		rs = self.calc_shortwave()
 		show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
 
+		self.lwd = lwd  # downwelling longwave radiation flux
+		self.lwu = lwu  # upwelling longwave radiation flux
 		self.rl_balance = rl
 		self.rs_balance = rs
 		self.tr_balance = sensible_flux_array + latent_flux_array
@@ -209,7 +212,7 @@ class Energy:
 	def calc_longwave(self):
 		lwu = 0.98 * 5.669 * 10 ** -8 * to_kelvin(self.t_surf) ** 4
 		lwd = (0.765 + 0.22 * self.cloudiness ** 3) * 5.669 * 10 ** -8 * to_kelvin(self.t_air_array) ** 4
-		return lwd - lwu
+		return lwd, lwu
 
 	def _load_raster(self, raster_path, crop_path, remove_negatives=False, remove_outliers=False):
 		ds = gdal.Open(raster_path)
