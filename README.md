@@ -1,4 +1,4 @@
-## ENRGY
+## <img alt="Logo" src="https://drive.google.com/uc?export=view&id=18f7qEgNjjDJxzW6cLkSXEg7VFcjywmgL" height="32">ENRGY
 Physical-based distributed glacier melt model.
 
 Computes ice and snow ablation based on heat amount available for melt.
