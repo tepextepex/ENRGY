@@ -20,7 +20,7 @@ Heat available for melt is calculated from glacier surface heat budget equation,
 * sensible heat flux of rain is not modelled;
 * NOTE: bulk aerodynamic technique, used for turbulent heat fluxes, is not the most precise one.
 
-Input data are meteorological observations from AWS at the glacier surface, DEM, albedo map and a potential incoming solar radiation grid (PISR). Albedo and PISR now should be prepared outside the model.
+Input data are meteorological observations from AWS at the glacier surface, DEM and albedo map.
 
 ##### Prerequisutes
 The model script uses:
