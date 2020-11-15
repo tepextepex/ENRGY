@@ -46,7 +46,7 @@ class Energy:
 
 			output = open(out_file, "w")
 			output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
-			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,TURB_BALANCE")  # header
+			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT")  # header
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
@@ -67,8 +67,8 @@ class Energy:
 
 					result = self.run()
 					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.tr_balance)))
-					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f" % stats)
+					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
+					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
 
 					self.total_melt_array += result
 					self.modelled_days += 1
@@ -81,7 +81,7 @@ class Energy:
 	def heuristic_unit_guesser(value, scale=10):
 		"""
 		Converts value in percent to a 0-1 range (scale=100)
-		or cloudness in a range from 0 to 10 to a 0- range (scale=10)
+		or cloudiness in a range from 0 to 10 to a 0-1 range (scale=10)
 		:param value:
 		:param scale:
 		:return:
@@ -153,6 +153,8 @@ class Energy:
 		self.rl_balance = rl
 		self.rs_balance = rs
 		self.tr_balance = sensible_flux_array + latent_flux_array
+		self.sensible = sensible_flux_array
+		self.latent = latent_flux_array
 
 		return rl + rs + sensible_flux_array + latent_flux_array
 
