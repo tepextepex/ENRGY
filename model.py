@@ -2,9 +2,9 @@ import os
 import gdal
 import csv
 import numpy as np
-import matplotlib.pyplot as plt
 from turbo import calc_turbulent_fluxes
 from turbo import _calc_e_max
+from raster_utils import show_me
 from interpolator import interpolate_array
 from saga_lighting import simulate_lighting, cleanup_sgrd
 
@@ -350,21 +350,3 @@ class Energy:
 
 def to_kelvin(t_celsius):
 	return t_celsius + 273.15
-
-
-def show_me(array, title=None, units=None, show=False, verbose=False):
-	try:
-		plt.imshow(array)
-		if verbose:
-			print("Mean %s is %.3f:" % (title, float(np.nanmean(array))))
-		if title is not None:
-			plt.title(title)
-		cb = plt.colorbar()
-		if units is not None:
-			cb.set_label(units)
-		plt.savefig("/home/tepex/PycharmProjects/energy/png/%s.png" % title)
-		if show:
-			plt.show()
-		plt.clf()
-	except Exception as e:
-		print(e)
