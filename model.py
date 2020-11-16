@@ -60,9 +60,9 @@ class Energy:
 			self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
 			self.modelled_days = 0
 
-			output = open(out_file, "w")
-			output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
-			output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT")  # header
+			with open(out_file, "w") as output:
+				output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
+				output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT")  # header
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
@@ -84,12 +84,12 @@ class Energy:
 					result = self.run()
 					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
 					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
-					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
+					with open(out_file, "a") as output:
+						output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
 
 					self.total_melt_array += result
 					self.modelled_days += 1
 
-			output.close()
 			show_me(self.total_melt_array, title="Total melt over the period (%d days)" % self.modelled_days, units="m w.e.")
 			self._export_array_as_geotiff(self.total_melt_array, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
 
