@@ -51,7 +51,6 @@ class Energy:
 
 	def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None):
 		if (aws_file is not None) and (albedo_maps is not None):
-
 			# loading albedo maps from geotiff files into arrays:
 			self.albedo_arrays = {}
 			for key in albedo_maps:  # albedo_maps contains file paths
@@ -274,3 +273,19 @@ class Energy:
 		:return:
 		"""
 		return insol / 86400
+
+
+if __name__ == "__main__":
+	arcticdem_path = "/home/tepex/AARI/Glaciology_2019/lighting/source/dem.tif"
+	glacier_outlines_path = "/home/tepex/AARI/Glaciers/Aldegonda albedo/shp/aldegonda_outlines_2018/aldegonda_outlines_2018.shp"
+	aws_file = "/home/tepex/PycharmProjects/energy/aws/test_aws_data.csv"
+	albedo_maps = {
+		"20190727": "/home/tepex/AARI/Glaciers/Aldegonda albedo/gridded/L8_albedo_20190727_crop.tif",
+		"20190803": "/home/tepex/AARI/Glaciers/Aldegonda albedo/gridded/L8_albedo_20190803_crop.tif"
+	}
+	elev_aws = 290
+	xy_aws = (478342, 8655635)  # EPSG:32633
+	out_file = "/home/tepex/PycharmProjects/energy/aws/test_out.csv"
+	#
+	e = Energy(arcticdem_path, glacier_outlines_path)
+	e.model(aws_file=aws_file, out_file=out_file, albedo_maps=albedo_maps, z=1.6, elev_aws=elev_aws, xy_aws=xy_aws)
