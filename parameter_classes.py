@@ -42,6 +42,9 @@ class DistributedParams:
     dem: np.array = field(metadata={"units": "m", "desc": "Elevation"})
     delta_dem: np.array = field(init=False, metadata={"units": "m", "desc": "Elevation difference relative to AWS location"})  # elevation differences relative to aws location
     t_air: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Air temperature"})
+    Tz: np.array = field(init=False, metadata={"units": "Kelvin", "desc": "Air thermodynamic temperature"})
+    t_surf: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Surface temperature"})
+    Tz_surf: np.array = field(init=False, metadata={"units": "Kelvin", "desc": "Surface thermodynamic temperature"})
     wind_speed: np.array = field(init=False, metadata={"units": "m per s", "desc": "Wind speed"})
     pressure: np.array = field(init=False, metadata={"units": "hPa", "desc": "Air pressure"})
     e: np.array = field(init=False, metadata={"units": "Pa", "desc": "Partial pressure of water vapour"})
@@ -50,10 +53,13 @@ class DistributedParams:
 
     def __post_init__(self):
         self.delta_dem = self.dem - self.aws.elev
-        self.Tz = self.t_air + 273.15
         self.t_air = self.__interpolate_t_air()
         self.param_to_png("t_air")
-        self.wind_speed = self.__fill_array_with_one_value()
+        self.Tz = to_kelvin(self.t_air)
+        self.t_surf = self.__fill_array_with_one_value(self.aws.t_surf)
+        self.param_to_png("t_surf")
+        self.Tz_surf = to_kelvin(self.t_surf)
+        self.wind_speed = self.__fill_array_with_one_value(self.aws.wind_speed)
         self.param_to_png("wind_speed")
         self.pressure = self.__interpolate_pressure()
         self.param_to_png("pressure")
@@ -118,6 +124,10 @@ class DistributedParams:
         title = self.get_desc(param_name)
         units = self.get_units(param_name)
         show_me(array, title=title, units=units, show=False, verbose=True)
+
+
+def to_kelvin(t_celsius):
+    return t_celsius + 273.15
 
 
 if __name__ == "__main__":
