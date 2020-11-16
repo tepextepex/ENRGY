@@ -4,7 +4,7 @@ import csv
 import numpy as np
 from parameter_classes import AwsParams, DistributedParams
 from turbo import calc_turbulent_fluxes
-from raster_utils import show_me
+from raster_utils import show_me, load_raster, export_array_as_geotiff
 from interpolator import interpolate_array
 from saga_lighting import simulate_lighting, cleanup_sgrd
 
@@ -30,7 +30,7 @@ class Energy:
 		self.outlines_path = glacier_outlines_path
 
 		print("Loading base DEM...")
-		self.base_dem_array = self._load_raster(base_dem_path, self.outlines_path)
+		self.base_dem_array, self.geotransform, self.projection = load_raster(base_dem_path, self.outlines_path)
 		self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
 
 		# initialising heat fluxes:
@@ -54,7 +54,7 @@ class Energy:
 			# loading albedo maps from geotiff files into arrays:
 			self.albedo_arrays = {}
 			for key in albedo_maps:  # albedo_maps contains file paths
-				self.albedo_arrays[key] = self._load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True)
+				self.albedo_arrays[key] = load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True)[0]
 
 			# creates an array to store a total melt over the period:
 			self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
@@ -91,7 +91,7 @@ class Energy:
 					self.modelled_days += 1
 
 			show_me(self.total_melt_array, title="Total melt over the period (%d days)" % self.modelled_days, units="m w.e.")
-			self._export_array_as_geotiff(self.total_melt_array, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
+			export_array_as_geotiff(self.total_melt_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
 
 	@staticmethod
 	def heuristic_unit_guesser(value, scale=10):
@@ -133,10 +133,10 @@ class Energy:
 		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(aws.z, params.wind_speed, params.Tz, params.P, params.rel_humidity, L=monin_obukhov_length)
 
 		show_me(sensible_flux_array, title="%s Sensible heat flux" % self.current_date_str, units="W m-2")
-		# self._export_array_as_geotiff(sensible_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
+		# export_array_as_geotiff(sensible_flux_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/sensible.tiff")
 
 		show_me(latent_flux_array, title="%s Latent heat flux" % self.current_date_str, units="W m-2")
-		# self._export_array_as_geotiff(latent_flux_array, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
+		# export_array_as_geotiff(latent_flux_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
 		# LONGWAVE RADIATION FLUX
 		lwd, lwu = self.calc_longwave()
@@ -159,7 +159,7 @@ class Energy:
 
 	def calc_shortwave(self):
 		self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str)
-		self.potential_incoming_radiation = self._load_raster(self.potential_incoming_sr_path, self.outlines_path)
+		self.potential_incoming_radiation = load_raster(self.potential_incoming_sr_path, self.outlines_path)[0]
 		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
 		show_me(self.incoming_shortwave, title="%s Potential Incoming Solar Radiation" % self.current_date_str, units="W / m-2")
 
@@ -211,50 +211,6 @@ class Energy:
 		lwu = 0.98 * 5.669 * 10 ** -8 * self.params.Tz_surf ** 4
 		lwd = (0.765 + 0.22 * self.aws.cloudiness ** 3) * 5.669 * 10 ** -8 * self.params.Tz ** 4
 		return lwd, lwu
-
-	def _load_raster(self, raster_path, crop_path, remove_negatives=False, remove_outliers=False):
-		ds = gdal.Open(raster_path)
-		crop_ds = gdal.Warp("", ds, dstSRS="+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs", format="VRT", cutlineDSName=crop_path, cropToCutline=True, outputType=gdal.GDT_Float32, xRes=10, yRes=10)
-		self.geotransform = crop_ds.GetGeoTransform()
-		self.projection = crop_ds.GetProjection()
-		band = crop_ds.GetRasterBand(1)
-		nodata = band.GetNoDataValue()
-		array = band.ReadAsArray()
-		array[array == nodata] = np.nan
-		if remove_negatives:
-			array[array < 0] = np.nan  # makes sense for albedo which couldn't be negative
-		if remove_outliers:
-			array[array > 1] = np.nan
-		print("Raster size is %dx%d" % array.shape)
-		return array
-
-	def _export_array_as_geotiff(self, array_to_export, path, scale_mult=None):
-		array = np.copy(array_to_export)  # to avoid modification of original array
-
-		if scale_mult is not None:
-			array = array * scale_mult
-			array = np.rint(array)
-			nodata = -32768
-			gdt_type = gdal.GDT_Int16
-		else:
-			nodata = -9999
-			gdt_type = gdal.GDT_Float32
-
-		array[np.isnan(array)] = nodata
-
-		driver = gdal.GetDriverByName("GTiff")
-
-		ds = driver.Create(path, array.shape[1], array.shape[0], 1, gdt_type)
-		ds.SetGeoTransform(self.geotransform)
-		ds.SetProjection(self.projection)
-
-		band = ds.GetRasterBand(1)
-		band.SetNoDataValue(nodata)
-		band.WriteArray(array)
-		band.FlushCache()
-		ds = None
-
-		return path
 
 	@staticmethod
 	def kWh_to_J(insol):
