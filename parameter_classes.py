@@ -13,7 +13,7 @@ CONST = {
 
 
 @dataclass
-class Output:
+class OutputRow:
     date_time_str: str
     lwd: np.array
     lwu: np.array

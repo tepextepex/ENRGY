@@ -2,7 +2,7 @@ import os
 import csv
 import numpy as np
 from parameter_classes import CONST
-from parameter_classes import AwsParams, DistributedParams, Output
+from parameter_classes import AwsParams, DistributedParams, OutputRow
 from turbo import calc_turbulent_fluxes
 from raster_utils import show_me, load_raster, export_array_as_geotiff
 from interpolator import interpolate_array
@@ -154,7 +154,7 @@ class Energy:
 		self.sensible = sensible_flux_array
 		self.latent = latent_flux_array
 
-		out = Output(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
+		out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
 		self.output_list.append(out)
 
 		return rl + rs + sensible_flux_array + latent_flux_array
