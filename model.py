@@ -109,7 +109,7 @@ class Energy:
 			raise ValueError("Wrong value encountered")
 
 	def run(self):
-		melt_heat_flux = self.calc_heat_influx()  # heat available for melt
+		melt_heat_flux = self.calc_melt_flux()  # heat available for melt
 		show_me(melt_heat_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
 
 		ice_melt = self.calc_ice_melt(melt_heat_flux)
@@ -117,7 +117,7 @@ class Energy:
 
 		return ice_melt
 
-	def calc_heat_influx(self):
+	def calc_melt_flux(self):
 		"""
 		Computes an amount of heat available for melt
 		:return: heat flux [W m-2]
