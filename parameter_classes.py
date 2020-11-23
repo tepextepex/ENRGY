@@ -1,7 +1,43 @@
 import numpy as np
+from datetime import datetime
 from dataclasses import dataclass, field
 from turbo import _calc_e_max
 from raster_utils import show_me
+
+
+CONST = {
+        "ice_density": 916.7,  # kg m-3
+        "latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
+        "g": 9.81
+}
+
+
+@dataclass
+class Output:
+    date_time_str: str
+    lwd: np.array
+    lwu: np.array
+    rs_balance: np.array
+    sensible: np.array
+    latent: np.array
+    date_time: datetime = field(init=False)
+    rl_balance: np.array = field(init=False)
+    tr_balance: np.array = field(init=False)
+    melt_flux: np.array = field(init=False)
+    melt_rate: np.array = field(init=False, metadata={"units": "m w.e. per s"})
+
+    def __post_init__(self):
+        self.date_time = datetime.strptime(self.date_time_str, "%Y%m%d")
+        #
+        self.rl_balance = self.lwd - self.lwu
+        self.tr_balance = self.sensible + self.latent
+        #
+        self.melt_flux = self.rs_balance + self.rl_balance + self.tr_balance
+        #
+        latent_heat_of_fusion = CONST["latent_heat_of_fusion"]
+        ice_density = CONST["ice_density"]
+        self.melt_rate = self.melt_flux / (ice_density * latent_heat_of_fusion)
+        self.melt_rate[self.melt_rate < 0] = 0  # since negative ice melt is not possible
 
 
 @dataclass
