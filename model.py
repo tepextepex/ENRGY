@@ -73,7 +73,7 @@ class Energy:
 
 				result = self.run()
 				print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-				# stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
+
 				stats = (str(self.output_list[-1]), float(np.nanmean(result)))
 				with open(out_file, "a") as output:
 					output.write("\n%s,%.3f" % stats)
@@ -101,19 +101,6 @@ class Energy:
 			raise ValueError("Wrong value encountered")
 
 	def run(self):
-		melt_heat_flux = self.calc_melt_flux()  # heat available for melt
-		show_me(melt_heat_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
-
-		ice_melt = self.calc_ice_melt(melt_heat_flux)
-		show_me(ice_melt, title="%s Ice melt" % self.current_date_str, units="m w.e.")
-
-		return ice_melt
-
-	def calc_melt_flux(self):
-		"""
-		Computes an amount of heat available for melt
-		:return: heat flux [W m-2]
-		"""
 		# TURBULENT HEAT FLUXES
 		# at the AWS (needed to know Monin-Obukhov length L), non-distributed:
 		aws = self.aws
@@ -141,7 +128,12 @@ class Energy:
 		out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
 		self.output_list.append(out)
 
-		return rl + rs + sensible_flux_array + latent_flux_array
+		show_me(out.melt_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
+
+		ice_melt = self.calc_ice_melt(out.melt_rate)  # TODO: add custom time_step - now it is one day
+		show_me(ice_melt, title="%s Ice melt" % self.current_date_str, units="m w.e.")
+
+		return ice_melt
 
 	def calc_shortwave(self):
 		self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str)
@@ -176,15 +168,17 @@ class Energy:
 
 		return factor
 
-	def calc_ice_melt(self, ice_heat_influx):
+	@staticmethod
+	def calc_ice_melt(ice_heat_rate, time_step=None):
 		"""
 		Computes a melt ice layer [m w.e.]
-		:param ice_heat_influx:
+		:param time_step:
+		:param ice_heat_rate:
 		:return: thickness of melt ice layer in meters w.e.
 		"""
-		latent_heat_of_fusion = self.CONST["latent_heat_of_fusion"]
-		ice_density = self.CONST["ice_density"]
-		ice_melt = (ice_heat_influx * 86400) / (ice_density * latent_heat_of_fusion)
+		if time_step is None:
+			time_step = 86400  # seconds per one day
+		ice_melt = ice_heat_rate * time_step
 
 		if type(ice_melt) == np.ndarray:
 			ice_melt[ice_melt < 0] = 0  # since negative ice melt (i.e. ice accumulation) is not possible
