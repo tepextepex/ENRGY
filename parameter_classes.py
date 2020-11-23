@@ -39,6 +39,14 @@ class OutputRow:
         self.melt_rate = self.melt_flux / (ice_density * latent_heat_of_fusion)
         self.melt_rate[self.melt_rate < 0] = 0  # since negative ice melt is not possible
 
+    def __repr__(self):
+        mean_rs = float(np.nanmean(self.rs_balance))
+        mean_rl = float(np.nanmean(self.rl_balance))
+        mean_lwd = float(np.nanmean(self.lwd))
+        mean_sensible = float(np.nanmean(self.sensible))
+        mean_latent = float(np.nanmean(self.latent))
+        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f" % (self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent)
+
 
 @dataclass
 class AwsParams:

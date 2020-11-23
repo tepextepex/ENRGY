@@ -35,15 +35,6 @@ class Energy:
 		self.base_dem_array, self.geotransform, self.projection = load_raster(base_dem_path, self.outlines_path)
 		self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
 
-		# initialising heat fluxes:
-		self.lwd = 0  # downwelling longwave radiation flux
-		self.lwu = 0  # upwelling longwave radiation flux
-		self.rl_balance = self.lwu - self.lwd
-		self.rs_balance = 0
-		self.sensible = 0
-		self.latent = 0
-		self.tr_balance = self.sensible + self.latent
-
 	def _init_constants(self):
 		self.CONST = CONST
 
@@ -60,7 +51,7 @@ class Energy:
 
 			with open(out_file, "w") as output:
 				output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
-				output.write("\nDATE,MELT,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT")  # header
+				output.write("\nDATE,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT,MELT")  # header
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
@@ -82,9 +73,10 @@ class Energy:
 
 				result = self.run()
 				print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-				stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
+				# stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
+				stats = (str(self.output_list[-1]), float(np.nanmean(result)))
 				with open(out_file, "a") as output:
-					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
+					output.write("\n%s,%.3f" % stats)
 
 				self.total_melt_array += result
 				self.modelled_days += 1
@@ -145,14 +137,6 @@ class Energy:
 		# SHORTWAVE RADIATION FLUX
 		rs = self.calc_shortwave()
 		show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
-
-		self.lwd = lwd  # downwelling longwave radiation flux
-		self.lwu = lwu  # upwelling longwave radiation flux
-		self.rl_balance = rl
-		self.rs_balance = rs
-		self.tr_balance = sensible_flux_array + latent_flux_array
-		self.sensible = sensible_flux_array
-		self.latent = latent_flux_array
 
 		out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
 		self.output_list.append(out)
