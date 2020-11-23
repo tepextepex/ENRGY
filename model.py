@@ -1,8 +1,8 @@
 import os
-import gdal
 import csv
 import numpy as np
-from parameter_classes import AwsParams, DistributedParams
+from parameter_classes import CONST
+from parameter_classes import AwsParams, DistributedParams, Output
 from turbo import calc_turbulent_fluxes
 from raster_utils import show_me, load_raster, export_array_as_geotiff
 from interpolator import interpolate_array
@@ -16,6 +16,8 @@ class Energy:
 
 		self.current_date_str = None
 		self.modelled_days = 0
+		self.input_list = []
+		self.output_list = []
 
 		self.aws = None
 		self.params = None
@@ -43,11 +45,7 @@ class Energy:
 		self.tr_balance = self.sensible + self.latent
 
 	def _init_constants(self):
-		self.CONST = {
-			"ice_density": 916.7,  # kg m-3
-			"latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
-			"g": 9.81
-		}
+		self.CONST = CONST
 
 	def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None):
 		if (aws_file is not None) and (albedo_maps is not None):
@@ -66,29 +64,30 @@ class Energy:
 
 			with open(aws_file) as csvfile:
 				reader = csv.DictReader(csvfile)
-				for row in reader:
+				self.input_list = list(reader)
 
-					print("Processing %s..." % row["DATE"])
-					self.current_date_str = row["DATE"]
+			for row in self.input_list:
+				print("Processing %s..." % row["DATE"])
+				self.current_date_str = row["DATE"]
 
-					# setting meteo parameters for the current date:
-					r_hum = self.heuristic_unit_guesser(float(row["REL_HUMIDITY"]), 100)
-					cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)
-					self.aws = AwsParams(float(row["T_AIR"]), float(row["WIND_SPEED"]), float(row["AIR_PRESSURE"]), r_hum, cld, float(row["INCOMING_SHORTWAVE"]), elev_aws, xy_aws[0], xy_aws[1], z)
-					self.params = DistributedParams(self.aws, self.base_dem_array)
+				# setting meteo parameters for the current date:
+				r_hum = self.heuristic_unit_guesser(float(row["REL_HUMIDITY"]), 100)
+				cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)
+				self.aws = AwsParams(float(row["T_AIR"]), float(row["WIND_SPEED"]), float(row["AIR_PRESSURE"]), r_hum, cld, float(row["INCOMING_SHORTWAVE"]), elev_aws, xy_aws[0], xy_aws[1], z)
+				self.params = DistributedParams(self.aws, self.base_dem_array)
 
-					# interpolating albedo map for the current date:
-					self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
-					show_me(self.albedo, title="%s albedo" % self.current_date_str)
+				# interpolating albedo map for the current date:
+				self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
+				show_me(self.albedo, title="%s albedo" % self.current_date_str)
 
-					result = self.run()
-					print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
-					stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
-					with open(out_file, "a") as output:
-						output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
+				result = self.run()
+				print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
+				stats = (self.current_date_str, float(np.nanmean(result)), float(np.nanmean(self.rs_balance)), float(np.nanmean(self.rl_balance)), float(np.nanmean(self.lwd)), float(np.nanmean(self.sensible)), float(np.nanmean(self.latent)))
+				with open(out_file, "a") as output:
+					output.write("\n%s,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f" % stats)
 
-					self.total_melt_array += result
-					self.modelled_days += 1
+				self.total_melt_array += result
+				self.modelled_days += 1
 
 			show_me(self.total_melt_array, title="Total melt over the period (%d days)" % self.modelled_days, units="m w.e.")
 			export_array_as_geotiff(self.total_melt_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
@@ -110,7 +109,7 @@ class Energy:
 			raise ValueError("Wrong value encountered")
 
 	def run(self):
-		melt_heat_flux = self.calc_heat_influx()  # heat available for melt:
+		melt_heat_flux = self.calc_heat_influx()  # heat available for melt
 		show_me(melt_heat_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
 
 		ice_melt = self.calc_ice_melt(melt_heat_flux)
@@ -124,11 +123,11 @@ class Energy:
 		:return: heat flux [W m-2]
 		"""
 		# TURBULENT HEAT FLUXES
-		# at the AWS (needed to know Monin-Obukhov length L):
+		# at the AWS (needed to know Monin-Obukhov length L), non-distributed:
 		aws = self.aws
 		sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(aws.z, aws.wind_speed, aws.Tz, aws.P, aws.rel_humidity)
 
-		# at the whole glacier surface:
+		# at the whole glacier surface, distributed:
 		params = self.params
 		sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(aws.z, params.wind_speed, params.Tz, params.P, params.rel_humidity, L=monin_obukhov_length)
 
@@ -154,6 +153,9 @@ class Energy:
 		self.tr_balance = sensible_flux_array + latent_flux_array
 		self.sensible = sensible_flux_array
 		self.latent = latent_flux_array
+
+		out = Output(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
+		self.output_list.append(out)
 
 		return rl + rs + sensible_flux_array + latent_flux_array
 
