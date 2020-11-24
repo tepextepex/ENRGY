@@ -1,10 +1,10 @@
 import os
 import os.path
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
-def simulate_lighting(dem_path, date, out_dir=None):
+def simulate_lighting(dem_path, date, out_dir=None, time_step=86400):
     """
     Simulates daily lighting of an every pixel for a given DEM [kW * h / m2]
     :param dem_path: path to a georeferenced raster representing Digital Elevation Model (DEM)
@@ -21,13 +21,27 @@ def simulate_lighting(dem_path, date, out_dir=None):
     total_path = os.path.join(out_dir, "%s_total.sdat" % date)
 
     # we need to reformat date into SAGA-acceptable format:
-    date = datetime.strptime(date, "%Y%m%d")
-    date = date.strftime("%m/%d/%Y")
+    try:
+        date = datetime.strptime(date, "%Y%m%d")
+        hour_range_min = "0"  # if only the date without time is specified, we start modelling at 0 hours of that day
+    except ValueError:
+        date = datetime.strptime(date, "%Y%m%d %H:%M:%S")
+        hour_range_min = date.strftime("%H")  # if the precise time is specified, we start modelling exactly at this time
+        # TODO: handle minutes and seconds!
+    hour_range_max = date + timedelta(seconds=time_step)
+    hour_range_max = hour_range_max.strftime("%H")
+    hour_range_max = "24" if hour_range_max == "00" else hour_range_max  # zero hours of the next day should be 24 hours for SAGA
+    # TODO: handle the case when time_step is less than default -HOUR_STEP of 0.25 hours
+    date = date.strftime("%m/%d/%Y")  # only date, time was specified above
 
     # params = (dem_path, direct_path, diffus_path, total_path, date)
     # cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_DIRECT '%s' -GRD_DIFFUS '%s' -GRD_TOTAL '%s' -SOLARCONST 1367.0 -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -METHOD 2" % params
-    params = (dem_path, total_path, date)
-    cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_TOTAL '%s' -SOLARCONST 1367.0 -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -METHOD 2" % params
+    params = (dem_path, total_path, date, hour_range_min, hour_range_max)
+    ###### DEBUG ######
+    print("-HOUR_RANGE_MIN: %s" % hour_range_min)
+    print("-HOUR_RANGE_MAX: %s" % hour_range_max)
+    #############################################
+    cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_TOTAL '%s' -SOLARCONST 1367.0 -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -HOUR_RANGE_MIN %s -HOUR_RANGE_MAX %s -METHOD 2" % params
     # print(cmd)
     # os.system(cmd)  # DEPRECATED in Python 3, but still works
     out, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()

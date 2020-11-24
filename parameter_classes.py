@@ -21,14 +21,19 @@ class OutputRow:
     sensible: np.array
     latent: np.array
     date_time: datetime = field(init=False)
+    date_time_str_output: str = field(init=False)
     rl_balance: np.array = field(init=False)
     tr_balance: np.array = field(init=False)
     melt_flux: np.array = field(init=False)
     melt_rate: np.array = field(init=False, metadata={"units": "m w.e. per s"})
 
     def __post_init__(self):
-        self.date_time = datetime.strptime(self.date_time_str, "%Y%m%d")
-        #
+        """
+        try:
+            self.date_time = datetime.strptime(self.date_time_str, "%Y%m%d")
+        except ValueError:
+            self.date_time = datetime.strptime(self.date_time_str, "%Y%m%d %H:%M:%S")
+        """
         self.rl_balance = self.lwd - self.lwu
         self.tr_balance = self.sensible + self.latent
         #

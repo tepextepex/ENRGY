@@ -82,7 +82,7 @@ class Energy:
 				print("########## TIME STEP IS: %s" % time_step)  # DEBUG
 
 				result = self.run(time_step)
-				print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
+				print("Ice melt within time step: %.3f m w.e." % np.nanmean(result))
 
 				stats = (str(self.output_list[-1]), float(np.nanmean(result)))
 				with open(out_file, "a") as output:
@@ -141,7 +141,7 @@ class Energy:
 		show_me(rl, title="%s Longwave" % self.current_date_str, units="W m-2")
 
 		# SHORTWAVE RADIATION FLUX
-		rs = self.calc_shortwave()
+		rs = self.calc_shortwave(time_step=time_step_seconds)
 		show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
 
 		out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
@@ -154,20 +154,20 @@ class Energy:
 
 		return ice_melt
 
-	def calc_shortwave(self):
-		self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str)
+	def calc_shortwave(self, time_step):
+		self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str, time_step=time_step)
 		self.potential_incoming_radiation = load_raster(self.potential_incoming_sr_path, self.outlines_path)[0]
-		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation))
+		self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation), time_step=time_step)
 		show_me(self.incoming_shortwave, title="%s Potential Incoming Solar Radiation" % self.current_date_str, units="W / m-2")
 
 		# potential incoming solar radiation into real:
-		self.incoming_shortwave *= self.potential_to_real_insolation_factor()
+		self.incoming_shortwave *= self.potential_to_real_insolation_factor(time_step)
 		show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str, units="W m-2")
 		cleanup_sgrd(self.potential_incoming_sr_path)
 
 		return self.incoming_shortwave * (1 - self.albedo)
 
-	def potential_to_real_insolation_factor(self):
+	def potential_to_real_insolation_factor(self, time_step):
 		"""
 		SUPER-DUPER-PRECISE empirical (NO) coefficient
 		:return:
@@ -176,7 +176,7 @@ class Energy:
 		query = 'gdallocationinfo -valonly -geoloc "%s" %s %s' % (self.potential_incoming_sr_path, self.aws.x, self.aws.y)
 
 		potential_at_aws = float(os.popen(query).read())
-		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws))
+		potential_at_aws = self.J_to_W(self.kWh_to_J(potential_at_aws), time_step=time_step)
 		print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
 
 		real_at_aws = self.aws.incoming_shortwave
@@ -214,20 +214,23 @@ class Energy:
 	@staticmethod
 	def kWh_to_J(insol):
 		"""
-		Converts amount of energy in [kW*h / day] into [J/day]
+		Converts amount of energy in [kW*h] into [J]
 		:param insol:
 		:return:
 		"""
-		return insol * 3.6 * 10 ** 6
+		return insol * 3.6 * 10**6
 
 	@staticmethod
-	def J_to_W(insol):
+	def J_to_W(insol, time_step=None):
 		"""
-		Converts amount of energy in [J/day] into the flux in [W/s]
-		:param insol:
-		:return:
+		Converts amount of energy in [J/period-of-time-in-seconds] into the flux in [W/s]
+		:param insol: radiation amount in [J]
+		:param time_step: period of time in seconds (one day by default)
+		:return: radiation flux in [W/s]
 		"""
-		return insol / 86400
+		if time_step is None:
+			time_step = 86400
+		return insol / time_step
 
 
 if __name__ == "__main__":
