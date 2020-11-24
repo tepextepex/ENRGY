@@ -16,7 +16,10 @@ Heat available for melt is calculated from glacier surface heat budget equation,
 
 ##### Model constraints
 * ground (in-glacier) heat flux is not modelled;
-* penetration of shorwave radiation below surface is not modelled;
+* penetration of shorwave radiation below surface is not modelled 
+=> all the flux is consumed by the surface itself;
+* direct-to-diffuse ratio of solar radiation does not change according to cloudiness and is assumed constant
+=> may overestimate topographic shading under cloudy conditions.
 * sensible heat flux of rain is not modelled;
 * NOTE: bulk aerodynamic technique, used for turbulent heat fluxes, is not the most precise one.
 
