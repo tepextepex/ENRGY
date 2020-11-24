@@ -3,7 +3,10 @@ from datetime import datetime
 
 
 def interpolate_array(arrays_dict, needed_date):
-	needed_date = datetime.strptime(needed_date, "%Y%m%d")
+	try:
+		needed_date = datetime.strptime(needed_date, "%Y%m%d")
+	except ValueError:
+		needed_date = datetime.strptime(needed_date, "%Y%m%d %H:%M:%S")
 	before, after = _get_closest_dates(arrays_dict, needed_date)
 
 	ar0 = arrays_dict[before.strftime("%Y%m%d")]
