@@ -74,6 +74,8 @@ class AwsParams:
 
     def __post_init__(self):
         self.t_surf = 0
+        if self.wind_speed == 0:
+            self.wind_speed = 0.01  # otherwise turbulent heat fluxes won't be computed
         self.Tz = self.t_air + 273.15
         self.P = self.pressure * 100  # Pascals from hPa
         self.e = self.rel_humidity * _calc_e_max(self.Tz, self.P)
