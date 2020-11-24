@@ -1,6 +1,7 @@
 import os
 import csv
 import numpy as np
+from datetime import datetime, timedelta
 from parameter_classes import CONST
 from parameter_classes import AwsParams, DistributedParams, OutputRow
 from turbo import calc_turbulent_fluxes
@@ -57,7 +58,9 @@ class Energy:
 				reader = csv.DictReader(csvfile)
 				self.input_list = list(reader)
 
-			for row in self.input_list:
+			# for row in self.input_list:
+			for i in range(0, len(self.input_list)):
+				row = self.input_list[i]
 				print("Processing %s..." % row["DATE"])
 				self.current_date_str = row["DATE"]
 
@@ -71,7 +74,14 @@ class Energy:
 				self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
 				show_me(self.albedo, title="%s albedo" % self.current_date_str)
 
-				result = self.run()
+				# parsing timestamps to compute time difference in seconds between input data rows:
+				try:
+					time_step = self.get_time_step(self.input_list, i, "%Y%m%d")
+				except ValueError:
+					time_step = self.get_time_step(self.input_list, i, "%Y%m%d %H:%M:%S")
+				print("########## TIME STEP IS: %s" % time_step)  # DEBUG
+
+				result = self.run(time_step)
 				print("Mean daily ice melt: %.3f m w.e." % np.nanmean(result))
 
 				stats = (str(self.output_list[-1]), float(np.nanmean(result)))
@@ -83,6 +93,15 @@ class Energy:
 
 			show_me(self.total_melt_array, title="Total melt over the period (%d days)" % self.modelled_days, units="m w.e.")
 			export_array_as_geotiff(self.total_melt_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/total_melt.tiff")
+
+	@staticmethod
+	def get_time_step(time_list, i, pattern):
+		if i < len(time_list) - 1:
+			time_step = datetime.strptime(time_list[i + 1]["DATE"], pattern) - datetime.strptime(time_list[i]["DATE"], pattern)
+		else:
+			time_step = datetime.strptime(time_list[i]["DATE"], pattern) - datetime.strptime(time_list[i - 1]["DATE"], pattern)
+		time_step = int(time_step.total_seconds())
+		return time_step
 
 	@staticmethod
 	def heuristic_unit_guesser(value, scale=10):
@@ -100,7 +119,7 @@ class Energy:
 		else:
 			raise ValueError("Wrong value encountered")
 
-	def run(self):
+	def run(self, time_step_seconds):
 		# TURBULENT HEAT FLUXES
 		# at the AWS (needed to know Monin-Obukhov length L), non-distributed:
 		aws = self.aws
@@ -130,7 +149,7 @@ class Energy:
 
 		show_me(out.melt_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
 
-		ice_melt = self.calc_ice_melt(out.melt_rate)  # TODO: add custom time_step - now it is one day
+		ice_melt = self.calc_ice_melt(out.melt_rate, time_step=time_step_seconds)
 		show_me(ice_melt, title="%s Ice melt" % self.current_date_str, units="m w.e.")
 
 		return ice_melt
