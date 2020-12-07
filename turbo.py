@@ -35,7 +35,7 @@ CONST = {
 }
 
 
-def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, max_iter=5, verbose=False):
+def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, zm=None, max_iter=5, verbose=False):
 	"""
 	Computes turbulent heat fluxes based on the bulk aerodynamic method.
 	Monin-Obukhov stability length L, if unknown,  is defined from iterative process with initial assumption of z/L=0
@@ -46,17 +46,19 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, max_iter=5, verbos
 	:param Tz: absolute air temperature at the height of z [K]
 	:param P: air pressure at the height of z [Pa]
 	:param rel_humidity: relative humidity of the air at the height of z [from 0.0 to 1.0]
-	:param max_iter: maximum number of iterations to define Monin-Obukhov stability length [integer]
+	:param L: Monin-Obukhov stability length [m]
+	:param zm: roughness length for momentum [m]
+	:param max_iter: maximum number of iterations to define Monin-Obukhov stability length [int]
 	:param verbose: shows result of every iteration [True/False]
 	:return: a tuple (sensible_heat_flux, latent_heat_flux, monin_obukhov_length) in [W m-2] and [m]
 	"""
 	if L is None:
-		sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, max_iter=max_iter, verbose=verbose)
+		sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, zm=zm, max_iter=max_iter, verbose=verbose)
 	else:
 		monin_obukhov_length = L
-		sensible_flux = _calc_sensible(z, uz, Tz, P, L=monin_obukhov_length)
+		sensible_flux = _calc_sensible(z, uz, Tz, P, L=monin_obukhov_length, zm=zm)
 
-	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length)
+	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length, zm=zm)
 
 	return sensible_flux, latent_flux, monin_obukhov_length
 
@@ -66,7 +68,7 @@ def _get_dry_air_density(t_air, p_air):
 	return p_air/(specific_gas_constant * t_air)
 
 
-def _calc_sensible_iteratively(z, uz, Tz, P, max_iter=5, verbose=False):
+def _calc_sensible_iteratively(z, uz, Tz, P, zm=None, max_iter=5, verbose=False):
 	if isinstance(max_iter, int) and max_iter < 10:
 		max_iter = max_iter
 	else:
@@ -75,8 +77,8 @@ def _calc_sensible_iteratively(z, uz, Tz, P, max_iter=5, verbose=False):
 	# calculation of L requires knowledge of both Qh and the friction velocity u_aster:
 	# we need to make an initial guess of L,
 	# assuming that z/L = 0 by passing l=None into the following functions:
-	u_aster = _calc_friction_velocity(uz, z, L=None)
-	Qh = _calc_sensible(z, uz, Tz, P, L=None)
+	u_aster = _calc_friction_velocity(uz, z, zm=zm, L=None)
+	Qh = _calc_sensible(z, uz, Tz, P, zm=zm, L=None)
 	L = _calc_monin_obukhov_length(Tz, P, u_aster, Qh)
 
 	if verbose:
@@ -86,8 +88,8 @@ def _calc_sensible_iteratively(z, uz, Tz, P, max_iter=5, verbose=False):
 		print("Monin-Obukhov length is %.1f m" % L)
 
 	for i in range(0, max_iter):
-		u_aster = _calc_friction_velocity(uz, z, L=L)
-		Qh = _calc_sensible(z, uz, Tz, P, L=L)
+		u_aster = _calc_friction_velocity(uz, z, zm=zm, L=L)
+		Qh = _calc_sensible(z, uz, Tz, P, zm=zm, L=L)
 		L = _calc_monin_obukhov_length(Tz, P, u_aster, Qh)
 		if verbose:
 			print("***************************")
@@ -117,7 +119,7 @@ def _calc_monin_obukhov_length(Tz, P, u_aster, Qh):
 	return num / denum
 
 
-def _calc_sensible(z, uz, Tz, P, L=None):
+def _calc_sensible(z, uz, Tz, P, zm=None, L=None):
 	"""
 	Computes sensible heat flux [W m-2]
 	:param z:
@@ -130,12 +132,12 @@ def _calc_sensible(z, uz, Tz, P, L=None):
 	Ts = CONST["Ts"]  # the absolute temperature of melting ice/snow surface [K]
 	Cp = CONST["specific_heat_capacity"]
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
-	CH = _calc_turb_exchange_coef(z, L=L)
+	CH = _calc_turb_exchange_coef(z, zm=zm, L=L)
 
 	return CH * Cp * rho * uz * (Tz - Ts)
 
 
-def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
+def _calc_latent(z, uz, Tz, P, rel_humidity, zm=None, L=None):
 	"""
 	Computes latent heat flux [W m-2]
 	:param z:
@@ -153,7 +155,7 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 	e_max = _calc_e_max(Tz, P)  # Pa, partial water vapor pressure for saturated air
 	ez = e_max * rel_humidity  # Pa, partial vapour pressure at the height of measurements "z"
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
-	CE = _calc_turb_exchange_coef(z, L=L)
+	CE = _calc_turb_exchange_coef(z, zm=zm, L=L)
 
 	flux = CE * rho * uz * 0.622 / P * (ez - es)
 
@@ -171,7 +173,7 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, L=None):
 	return flux
 
 
-def _calc_turb_exchange_coef(z, L=None):
+def _calc_turb_exchange_coef(z, L=None, zm=None):
 	"""
 	Computes the turbulent exchange coefficients for sensible (CH) or for latent flux (CE)
 	under stable atmospheric conditions
@@ -180,7 +182,8 @@ def _calc_turb_exchange_coef(z, L=None):
 	:return:
 	"""
 	k = CONST["k"]  # dimensionless, von Karman constant
-	zm = CONST["zm"]  # meters, roughness length for momentum
+	if zm is None:
+		zm = CONST["zm"]  # meters, roughness length for momentum
 	z_h_or_e = zm / 100  # meters, roughness length for heat or water vapour
 	num = k**2
 	if L is not None:
@@ -192,9 +195,10 @@ def _calc_turb_exchange_coef(z, L=None):
 	return num / denum
 
 
-def _calc_friction_velocity(uz, z, L=None):
+def _calc_friction_velocity(uz, z, L=None, zm=None):
 	k = CONST["k"]  # dimensionless, von Karman constant
-	zm = CONST["zm"]  # meters, roughness length for momentum
+	if zm is None:
+		zm = CONST["zm"]  # meters, roughness length for momentum
 	num = k * uz
 	if L is not None:
 		minus_psi_m = _calc_minus_psi_m(z, L)
@@ -249,8 +253,9 @@ if __name__ == "__main__":
 	Tz = 3 + 273.15  # K
 	P = 99000  # Pascals
 	rel_humidity = 0.85
+	roughness = 0.01  # (empirical) roughness length for momentum (for wind) [m]
 	############################
-	QH, QE, L = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, max_iter=5, verbose=True)
+	QH, QE, L = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, zm=roughness, max_iter=5, verbose=True)
 	print("******************")
 	print("FINAL RESULT:")
 	print("Sensible heat flux is %.1f W m-2" % QH)
