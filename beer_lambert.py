@@ -11,9 +11,10 @@ Bohren and Barkstrom (1974) and Greuell and Konzelmann (1994).
 import math
 import matplotlib.pyplot as plt
 
+IR_IN_SOLAR_FLUX = 0.36  # infrared radiation is consumed by surface and does not penetrate under it
+
 
 def absorbed_between(top_depth, bottom_depth, flux_in, density=900):
-    ir_in_solar_flux = 0.36  # infrared radiation is consumed by surface and does not penetrate under it
     absorbed = False
     top_out_flux = beer_lambert_for_glacier(flux_in, top_depth, density=density)
     # print(top_out_flux)
@@ -21,7 +22,7 @@ def absorbed_between(top_depth, bottom_depth, flux_in, density=900):
     # print(bottom_out_flux)
     absorbed = top_out_flux - bottom_out_flux if top_out_flux > bottom_out_flux else bottom_out_flux - top_out_flux
     if top_depth == 0 or bottom_depth == 0:
-        absorbed += ir_in_solar_flux * flux_in
+        absorbed += IR_IN_SOLAR_FLUX * flux_in
     return absorbed
 
 
@@ -33,14 +34,13 @@ def beer_lambert_for_glacier(flux_in, thickness, density=900):
     :param density:
     :return:
     """
-    ir_in_solar_flux = 0.36  # infrared radiation is consumed by surface and does not penetrate under it
     flux_out = False
     try:
         if thickness > 0:
             k = __extinction_coef(density)
-            flux_out = (1 - ir_in_solar_flux) * __beer_lambert(flux_in, k, thickness)
+            flux_out = (1 - IR_IN_SOLAR_FLUX) * __beer_lambert(flux_in, k, thickness)
         elif thickness == 0:
-            flux_out = (1 - ir_in_solar_flux) * flux_in
+            flux_out = (1 - IR_IN_SOLAR_FLUX) * flux_in
         else:
             raise ValueError
     except Exception as e:
