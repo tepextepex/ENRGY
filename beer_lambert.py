@@ -5,16 +5,24 @@ The penetration of shortwave radiation beneath the surface is taken into account
 following Greuell and Oerlemans (1986) by assuming 36% (IR part of the solar spectrum)
 is absorbed entirely at the surface.
 
-Computation of extinction coefficient for ice and snow follows
+Estimation of extinction coefficient for ice and snow follows
 Bohren and Barkstrom (1974) and Greuell and Konzelmann (1994).
 """
 import math
-import matplotlib.pyplot as plt
 
 IR_IN_SOLAR_FLUX = 0.36  # infrared radiation is consumed by surface and does not penetrate under it
 
 
 def absorbed_between(top_depth, bottom_depth, flux_in, density=900):
+    """
+    Computes a shortwave radiation flux which was absorbed inside
+    a glacier body in a layer between top_depth and bottom_depth.
+    :param top_depth: top boundary of a layer [m]
+    :param bottom_depth: bottom boundary of a layer [m]
+    :param flux_in: shortwave flux at a surface: incoming solar radiation multiplied by (1 - albedo) [W m-2]
+    :param density: ice or snow density (0-1000) [kg m-3]
+    :return: shortwave radiation flux absorbed inside the layer [W m-2]
+    """
     absorbed = False
     top_out_flux = beer_lambert_for_glacier(flux_in, top_depth, density=density)
     # print(top_out_flux)
@@ -28,11 +36,11 @@ def absorbed_between(top_depth, bottom_depth, flux_in, density=900):
 
 def beer_lambert_for_glacier(flux_in, thickness, density=900):
     """
-
-    :param flux_in:
-    :param thickness:
-    :param density:
-    :return:
+    Calculates shortwave radiation flux that penetrates under a layer with a given thickness.
+    :param flux_in: shortwave flux at a top of glacier layer [W m-2]
+    :param thickness: thickness of a glacier layer
+    :param density: ice or snow density (0-1000) in the layer [kg m-3]
+    :return: shortwave radiation flux at the bottom of the layer [W m-2]
     """
     flux_out = False
     try:
@@ -50,8 +58,11 @@ def beer_lambert_for_glacier(flux_in, thickness, density=900):
 
 def thickness_for_ratio(ratio, extinction_coef, penetrated_ratio=None):
     """
-    Computes material thickness where outgoing radiation flux becomes a [ratio] from incoming flux
-    :return: thickness (depth) [m]
+    Computes material thickness where outgoing radiation flux becomes a [ratio] from incoming flux.
+    :param ratio: a ratio of incoming radiation flux [0-1]
+    :param extinction_coef: extinction coefficient for the given material and the given wave length [m-1]
+    :param penetrated_ratio: a ratio of incoming flux which penetrates below surface
+    :return: thickness (depth) where outgoing radiation flux becomes a [ratio] from incoming flux [m]
     """
     if penetrated_ratio is None:
         penetrated_ratio = 1
@@ -70,11 +81,11 @@ def thickness_for_ratio(ratio, extinction_coef, penetrated_ratio=None):
 
 def __beer_lambert(flux_in, extinction_coef, thickness):
     """
-
-    :param flux_in:
-    :param extinction_coef:
-    :param thickness:
-    :return:
+    Simple implementation of Beer-Lambert law.
+    :param flux_in: incoming radiation flux [W m-2]
+    :param extinction_coef: extinction coefficient for the given material and the given wave length [m-1]
+    :param thickness: material thickness [m]
+    :return: outgoing radiation flux [W m-2]
     """
     flux_out = False
     try:
@@ -86,7 +97,7 @@ def __beer_lambert(flux_in, extinction_coef, thickness):
 
 def __extinction_coef(ice_density):
     """
-
+    Computes an extinction coefficient for shortwave radiation inside water ice/snow.
     :param ice_density: ice or snow density [kg m-3], valid range from 0 to 1000
     :return: extinction coefficient for shortwave radiation flux [m-1]
     """
@@ -101,31 +112,7 @@ def __extinction_coef(ice_density):
 
 
 if __name__ == "__main__":
-    # print(__beer_lambert(100, 2.5, 0.25))
-    # print(__extinction_coef(850))
-    # print(beer_lambert_for_glacier(100, 0.22, 900))
-    in_flux = 100
-    """
-    depths = [-0.05 * x for x in range(0, 45)]
-    density = 880
-    fluxes = [beer_lambert_for_glacier(in_flux, -x, density=density) for x in depths]
-    k = __extinction_coef(density)
-    one_percent_depth = thickness_for_ratio(0.01, k, penetrated_ratio=0.64)
-    print("One percent flux depth is %.2f m" % one_percent_depth)
-    # print(depths)
-    # print(fluxes)
-
-    plt.style.use("seaborn")
-    plt.figure(figsize=(4, 6))
-    plt.plot(fluxes, depths, label="Shortwave flux, $\\rho$=%s $kg m^{-2}$" % density)
-    plt.text(0, 0, "1%% of incoming flux is at %.2f m" % one_percent_depth, fontsize=9)
-    plt.legend()
-    plt.xlim(-1, 100)
-    plt.xlabel("Percent of incoming radiation flux, %")
-    plt.ylabel("Depth below glacier surface, m")
-    plt.tight_layout()
-    plt.show()
-    """
+    in_flux = 100  # incoming solar radiation multiplied by (1 - albedo) [W/m-2]
     a = [x * 0.1 for x in range(0, 10)]
     for x in range(0, 10):
         print("Depth: %.2f-%.2f" % (x * 0.2, x * 0.2 + 0.2))
