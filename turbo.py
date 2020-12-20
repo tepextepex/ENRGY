@@ -159,16 +159,12 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, zm=None, L=None):
 
 	flux = CE * rho * uz * 0.622 / P * (ez - es)
 
-	# latent heats for positive and negative fluxes are different!
-	# but we should handle numpy arrays and float inputs a little bit differently:
-	# modifying the same array you are iterating over is BAD, but
-	# Lv and Ls coefficients are strictly positive, therefore they do not change the sign of values into original flux array:
+	# we should handle numpy arrays and float inputs a little bit differently:
 	if type(flux) == np.ndarray:
-		flux[flux > 0] *= Lv
-		flux[flux < 0] *= Ls
+		flux = flux * Lv  # since we assume surface temperature is at melting point, sublimation never happens
 		# you'll get "RuntimeWarning: invalid value encountered in greater" dut to np.nan values - never mind
 	else:
-		flux = Lv * flux if flux > 0 else Ls * flux
+		flux = flux * Lv
 
 	return flux
 
