@@ -153,8 +153,8 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, Ts=None, zm=None, L=None):
 		es = CONST["es"]  # Pa, water vapour pressure at the ice surface
 	else:
 		es = _calc_e_max(Ts, P)
-	Lv = CONST["latent_heat_vaporization"]  # J kg-1, latent heat of vaporization (for positive flux)
-	Ls = CONST["latent_heat_sublimation"]  # J kg-1, latent heat of sublimation (for negative flux)
+	Lv = CONST["latent_heat_vaporization"]  # J kg-1, latent heat of vaporization (for positive surface temps)
+	Ls = CONST["latent_heat_sublimation"]  # J kg-1, latent heat of sublimation (for negative surface temps)
 
 	e_max = _calc_e_max(Tz, P)  # Pa, partial water vapor pressure for saturated air
 	ez = e_max * rel_humidity  # Pa, partial vapour pressure at the height of measurements "z"
@@ -163,12 +163,17 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, Ts=None, zm=None, L=None):
 
 	flux = CE * rho * uz * 0.622 / P * (ez - es)
 
-	# we should handle numpy arrays and float inputs a little bit differently:
-	if type(flux) == np.ndarray:
-		flux = flux * Lv  # since we assume surface temperature is at melting point, sublimation never happens
-		# you'll get "RuntimeWarning: invalid value encountered in greater" dut to np.nan values - never mind
-	else:
+	if Ts is None:
+		# since we assume surface temperature is at melting point, sublimation never happens:
 		flux = flux * Lv
+	else:
+		# else we should look into surface temp array
+		# and handle numpy arrays and float inputs a little bit differently:
+		if type(flux) == np.ndarray:
+			flux = np.where(Ts >= 0, flux * Lv, flux * Ls)
+			# you'll get "RuntimeWarning: invalid value encountered in greater" dut to np.nan values - never mind
+		else:
+			flux = flux * Lv if Ts >= 0 else flux * Ls
 
 	return flux
 
