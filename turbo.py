@@ -21,7 +21,6 @@ southwest Yukon, Canada. Journal of Glaciology, 57(201), 121-133. doi:10.3189/00
 """
 import numpy as np
 
-
 CONST = {
 	"specific_gas_constant": 287.058,  # [J kg-1 K-1]
 	"k": 0.4,  # von Karman constant [dimensionless]
@@ -35,7 +34,7 @@ CONST = {
 }
 
 
-def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, zm=None, max_iter=5, verbose=False):
+def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, surface_temp=None, L=None, zm=None, max_iter=5, verbose=False):
 	"""
 	Computes turbulent heat fluxes based on the bulk aerodynamic method.
 	Monin-Obukhov stability length L, if unknown,  is defined from iterative process with initial assumption of z/L=0
@@ -46,6 +45,7 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, zm=None, max_iter=
 	:param Tz: absolute air temperature at the height of z [K]
 	:param P: air pressure at the height of z [Pa]
 	:param rel_humidity: relative humidity of the air at the height of z [from 0.0 to 1.0]
+	:param surface_temp: if None, assumed to be constant, equalling 273.15 K (as a melting surface)
 	:param L: Monin-Obukhov stability length [m]
 	:param zm: roughness length for momentum [m]
 	:param max_iter: maximum number of iterations to define Monin-Obukhov stability length [int]
@@ -53,12 +53,12 @@ def calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, L=None, zm=None, max_iter=
 	:return: a tuple (sensible_heat_flux, latent_heat_flux, monin_obukhov_length) in [W m-2] and [m]
 	"""
 	if L is None:
-		sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, zm=zm, max_iter=max_iter, verbose=verbose)
+		sensible_flux, monin_obukhov_length = _calc_sensible_iteratively(z, uz, Tz, P, surface_temp, zm=zm, max_iter=max_iter, verbose=verbose)
 	else:
 		monin_obukhov_length = L
-		sensible_flux = _calc_sensible(z, uz, Tz, P, L=monin_obukhov_length, zm=zm)
+		sensible_flux = _calc_sensible(z, uz, Tz, P, Ts=surface_temp, L=monin_obukhov_length, zm=zm)
 
-	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, L=monin_obukhov_length, zm=zm)
+	latent_flux = _calc_latent(z, uz, Tz, P, rel_humidity, Ts=surface_temp, L=monin_obukhov_length, zm=zm)
 
 	return sensible_flux, latent_flux, monin_obukhov_length
 
@@ -68,7 +68,7 @@ def _get_dry_air_density(t_air, p_air):
 	return p_air/(specific_gas_constant * t_air)
 
 
-def _calc_sensible_iteratively(z, uz, Tz, P, zm=None, max_iter=5, verbose=False):
+def _calc_sensible_iteratively(z, uz, Tz, P, Ts, zm=None, max_iter=5, verbose=False):
 	if isinstance(max_iter, int) and max_iter < 10:
 		max_iter = max_iter
 	else:
@@ -78,7 +78,7 @@ def _calc_sensible_iteratively(z, uz, Tz, P, zm=None, max_iter=5, verbose=False)
 	# we need to make an initial guess of L,
 	# assuming that z/L = 0 by passing l=None into the following functions:
 	u_aster = _calc_friction_velocity(uz, z, zm=zm, L=None)
-	Qh = _calc_sensible(z, uz, Tz, P, zm=zm, L=None)
+	Qh = _calc_sensible(z, uz, Tz, P, Ts=Ts, zm=zm, L=None)
 	L = _calc_monin_obukhov_length(Tz, P, u_aster, Qh)
 
 	if verbose:
@@ -89,7 +89,7 @@ def _calc_sensible_iteratively(z, uz, Tz, P, zm=None, max_iter=5, verbose=False)
 
 	for i in range(0, max_iter):
 		u_aster = _calc_friction_velocity(uz, z, zm=zm, L=L)
-		Qh = _calc_sensible(z, uz, Tz, P, zm=zm, L=L)
+		Qh = _calc_sensible(z, uz, Tz, P, Ts, zm=zm, L=L)
 		L = _calc_monin_obukhov_length(Tz, P, u_aster, Qh)
 		if verbose:
 			print("***************************")
@@ -119,7 +119,7 @@ def _calc_monin_obukhov_length(Tz, P, u_aster, Qh):
 	return num / denum
 
 
-def _calc_sensible(z, uz, Tz, P, zm=None, L=None):
+def _calc_sensible(z, uz, Tz, P, Ts=None, zm=None, L=None):
 	"""
 	Computes sensible heat flux [W m-2]
 	:param z:
@@ -129,7 +129,8 @@ def _calc_sensible(z, uz, Tz, P, zm=None, L=None):
 	:param L:
 	:return:
 	"""
-	Ts = CONST["Ts"]  # the absolute temperature of melting ice/snow surface [K]
+	if Ts is None:
+		Ts = CONST["Ts"]  # the absolute temperature of melting ice/snow surface [K]
 	Cp = CONST["specific_heat_capacity"]
 	rho = _get_dry_air_density(Tz, P)  # kg m-3, air density
 	CH = _calc_turb_exchange_coef(z, zm=zm, L=L)
@@ -137,7 +138,7 @@ def _calc_sensible(z, uz, Tz, P, zm=None, L=None):
 	return CH * Cp * rho * uz * (Tz - Ts)
 
 
-def _calc_latent(z, uz, Tz, P, rel_humidity, zm=None, L=None):
+def _calc_latent(z, uz, Tz, P, rel_humidity, Ts=None, zm=None, L=None):
 	"""
 	Computes latent heat flux [W m-2]
 	:param z:
@@ -148,7 +149,10 @@ def _calc_latent(z, uz, Tz, P, rel_humidity, zm=None, L=None):
 	:param L:
 	:return:
 	"""
-	es = CONST["es"]  # Pa, water vapour pressure at the ice surface
+	if Ts is None:
+		es = CONST["es"]  # Pa, water vapour pressure at the ice surface
+	else:
+		es = _calc_e_max(Ts, P)
 	Lv = CONST["latent_heat_vaporization"]  # J kg-1, latent heat of vaporization (for positive flux)
 	Ls = CONST["latent_heat_sublimation"]  # J kg-1, latent heat of sublimation (for negative flux)
 
@@ -250,10 +254,14 @@ if __name__ == "__main__":
 	P = 99000  # Pascals
 	rel_humidity = 0.85
 	roughness = 0.01  # (empirical) roughness length for momentum (for wind) [m]
+	# T_surf = 273.15  # K
+	T_surf = None
 	############################
-	QH, QE, L = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, zm=roughness, max_iter=5, verbose=True)
+	QH, QE, L = calc_turbulent_fluxes(z, uz, Tz, P, rel_humidity, T_surf, zm=roughness, max_iter=5, verbose=True)
 	print("******************")
 	print("FINAL RESULT:")
 	print("Sensible heat flux is %.1f W m-2" % QH)
 	print("Latent heat flux is %.1f W m-2" % QE)
 	print("Monin-Obukhov stability length is %.1f m" % L)
+	############################
+	# print(_calc_e_max(273.15, P))
