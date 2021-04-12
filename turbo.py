@@ -1,7 +1,7 @@
 """
 Bulk aerodynamic technique for estimating heat exchange in turbulent flow.
-Atmospheric conditions are assumed to be stable.
-[unstable parametrization is under construction]
+Uses different parametrization for stable and unstable atmospheric conditions.
+
 
 See references:
 1) Munro, D.S. 1989. Surface roughness and bulk heat transfer on a
@@ -20,6 +20,7 @@ Journal of Glaciology, 51(172), 25-36. doi:10.3189/172756505781829566
 southwest Yukon, Canada. Journal of Glaciology, 57(201), 121-133. doi:10.3189/002214311795306709
 """
 import numpy as np
+from math import pi
 
 CONST = {
 	"specific_gas_constant": 287.058,  # [J kg-1 K-1]
@@ -216,26 +217,44 @@ def _calc_friction_velocity(uz, z, L=None, zm=None):
 
 def _calc_minus_psi_m(z, L):
 	"""
-	Computes stability constant Psi-M
+	Computes stability function Psi-M in integrated form
 	:return:
 	"""
-	a = 0.7
-	b = 0.75
-	c = 5
-	d = 0.35
-	return a * z / L + b * (z / L - c / d) * np.exp(-d * z / L) + b * c / d
+	zeta = z / L
+	if zeta >= 0:
+		# under stable conditions:
+		a = 0.7
+		b = 0.75
+		c = 5
+		d = 0.35
+		return a * zeta + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d
+	else:
+		# under unstable conditions:
+		x = _calc_Dyer_x(zeta)
+		return -(2 * np.log((1 + x) / 2) + np.log((1 + x ** 2) / 2) - 2 * np.arctan(x) + pi / 2)
 
 
 def _calc_minus_psi_h_or_e(z, L):
 	"""
-	Computes stability constant Psi-H or Psi-E
+	Computes stability function Psi-H or Psi-E in integrated form
 	:return:
 	"""
-	a = 0.7
-	b = 0.75
-	c = 5
-	d = 0.35
-	return (1 + 2 * a * z / 3 * L) ** 1.5 + b * (z / L - c / d) * np.exp(-d * z / L) + b * c / d - 1
+	zeta = z / L
+	if zeta >= 0:
+		# under stable conditions:
+		a = 0.7
+		b = 0.75
+		c = 5
+		d = 0.35
+		return (1 + 2 * a * zeta / 3) ** 1.5 + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d - 1
+	else:
+		# under unstable conditions:
+		x = _calc_Dyer_x(zeta)
+		return -(2 * np.log((1 + x ** 2) / 2))
+
+
+def _calc_Dyer_x(zeta):
+	return (1 - 16 * zeta) ** (1 / 4)
 
 
 def _calc_e_max(t_air, air_pressure):
@@ -256,6 +275,7 @@ if __name__ == "__main__":
 	z = 1.6  # m
 	uz = 2.5  # m/s
 	Tz = 3 + 273.15  # K
+	# Tz = -10 + 273.15  # K
 	P = 99000  # Pascals
 	rel_humidity = 0.85
 	roughness = 0.01  # (empirical) roughness length for momentum (for wind) [m]
