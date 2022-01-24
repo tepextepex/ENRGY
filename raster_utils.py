@@ -1,9 +1,9 @@
 import os.path
-import gdal
+from osgeo import gdal
 import numpy as np
 import matplotlib.pyplot as plt
 
-OUT_DIR = "/home/tepex/PycharmProjects/energy/test_png/"
+OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
 
 
 def show_me(array, title=None, units=None, show=False, verbose=False):
@@ -19,7 +19,6 @@ def show_me(array, title=None, units=None, show=False, verbose=False):
         cb = plt.colorbar()
         if units is not None:
             cb.set_label(units)
-        # plt.savefig("/home/tepex/PycharmProjects/energy/png/%s.png" % title)
         plt.savefig(os.path.join(OUT_DIR, "%s.png" % title))
         if show:
             plt.show()
@@ -28,7 +27,7 @@ def show_me(array, title=None, units=None, show=False, verbose=False):
         print(e)
 
 
-def load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=False):
+def load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=False, v=True):
     ds = gdal.Open(raster_path)
     crop_ds = gdal.Warp("", ds, dstSRS="+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs", format="VRT",
                         cutlineDSName=crop_path, cropToCutline=True, outputType=gdal.GDT_Float32, xRes=10, yRes=10)
@@ -42,7 +41,8 @@ def load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=
         array[array < 0] = np.nan  # makes sense for albedo which couldn't be negative
     if remove_outliers:
         array[array > 1] = np.nan
-    print("Raster size is %dx%d" % array.shape)
+    if v:
+        print("Raster size is %dx%d" % array.shape)
     return array, gt, proj
 
 

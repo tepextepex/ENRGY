@@ -4,13 +4,12 @@ from dataclasses import dataclass, field
 from turbo import _calc_e_max
 from raster_utils import show_me
 
-
 CONST = {
-        "ice_density": 916.7,  # kg m-3
-        "latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
-        "specific_heat_capacity_ice": 2097.0,  # J kg-1 K-1
-        "thermal_diffusivity_ice": 1.16 * 10 ** -6,  # m2 s-1
-        "g": 9.81
+    "ice_density": 916.7,  # kg m-3
+    "latent_heat_of_fusion": 3.34 * 10 ** 5,  # J kg-1
+    "specific_heat_capacity_ice": 2097.0,  # J kg-1 K-1
+    "thermal_diffusivity_ice": 1.16 * 10 ** -6,  # m2 s-1
+    "g": 9.81
 }
 
 
@@ -52,7 +51,8 @@ class OutputRow:
         mean_lwd = float(np.nanmean(self.lwd))
         mean_sensible = float(np.nanmean(self.sensible))
         mean_latent = float(np.nanmean(self.latent))
-        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f" % (self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent)
+        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f" % (
+            self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent)
 
 
 @dataclass
@@ -93,7 +93,9 @@ class AwsParams:
 class DistributedParams:
     aws: AwsParams
     dem: np.array = field(metadata={"units": "m", "desc": "Elevation"})
-    delta_dem: np.array = field(init=False, metadata={"units": "m", "desc": "Elevation difference relative to AWS location"})  # elevation differences relative to aws location
+    delta_dem: np.array = field(init=False, metadata={"units": "m",
+                                                      "desc": "Elevation difference relative to AWS location"})
+    # ^ elevation differences relative to aws location
     t_air: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Air temperature"})
     Tz: np.array = field(init=False, metadata={"units": "Kelvin", "desc": "Air thermodynamic temperature"})
     t_surf: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Surface temperature"})
@@ -184,7 +186,8 @@ def to_kelvin(t_celsius):
 
 
 if __name__ == "__main__":
-    test_aws_params = AwsParams(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2, incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
+    test_aws_params = AwsParams(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2,
+                                incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
     print(test_aws_params)
     print(test_aws_params.Tz)
     print(test_aws_params.__dataclass_fields__['Tz'].metadata)

@@ -30,7 +30,8 @@ def simulate_lighting(dem_path, date, out_dir=None, time_step=86400):
         hour_range_min = dt_to_decimal_hours(date)
 
     hour_range_max = dt_to_decimal_hours(date + timedelta(seconds=time_step))
-    hour_range_max = "24" if float(hour_range_max) == 0 else hour_range_max  # zero hours of the next day should be 24 hours for SAGA
+    # zero hours of the next day should be 24 hours for SAGA:
+    hour_range_max = "24" if float(hour_range_max) == 0 else hour_range_max
     # TODO: handle the case when time_step is less than default -HOUR_STEP of 0.25 hours
     date = date.strftime("%m/%d/%Y")  # only date, time was specified above
 
@@ -38,7 +39,9 @@ def simulate_lighting(dem_path, date, out_dir=None, time_step=86400):
 
     print("Simulating insolation within %s-%s hours" % (hour_range_min, hour_range_max))
 
-    cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_TOTAL '%s' -SOLARCONST 1367.0 -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -HOUR_RANGE_MIN %s -HOUR_RANGE_MAX %s -METHOD 2" % params
+    cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_TOTAL '%s' -SOLARCONST 1367.0 \
+    -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -HOUR_RANGE_MIN %s -HOUR_RANGE_MAX %s \
+    -METHOD 2 -LUMPED 80" % params
     # print(cmd)
     # os.system(cmd)  # DEPRECATED in Python 3, but still works
     out, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
@@ -53,7 +56,7 @@ def simulate_lighting(dem_path, date, out_dir=None, time_step=86400):
 def dt_to_decimal_hours(dt):
     result = False
     try:
-        result = float(dt.strftime("%H")) + float(dt.strftime("%M"))/60 + float(dt.strftime("%S"))/3600
+        result = float(dt.strftime("%H")) + float(dt.strftime("%M")) / 60 + float(dt.strftime("%S")) / 3600
     except Exception as e:
         pass
     return result
