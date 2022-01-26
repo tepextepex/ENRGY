@@ -6,9 +6,11 @@ from raster_utils import show_me
 
 CONST = {
     "ice_density": 916.7,  # kg m-3
+    "snow_density": 350.0,  # kg m-3
     "latent_heat_of_fusion": 3.34 * 10 ** 5,  # J kg-1
     "specific_heat_capacity_ice": 2097.0,  # J kg-1 K-1
     "thermal_diffusivity_ice": 1.16 * 10 ** -6,  # m2 s-1
+    "thermal_diffusivity_snow": 0.40 * 10 ** -6,  # m2 s-1
     "g": 9.81
 }
 
