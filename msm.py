@@ -85,7 +85,7 @@ def tick(depths, temps, timestep, flux=None, snow_depth=None):
             # print("delta t is", delta_t)
         new_temps.append(temps[i] + delta_t * timestep)
     new_temps.append(temps[-1])  # temperature of the deepest layer is constant
-    return new_temps, qm
+    return new_temps, qm  # TODO: return in-glacier flux instead of melt flux
 
 
 def update_layers(depths, temps, surf_lowering):
@@ -136,34 +136,50 @@ def filter_layers(depths, temps, threshold):
     return depths, temps
 
 
-def calc_melt(melt_flux, swe):
-    melt_rate_kg = melt_flux / latent_heat_of_fusion  # melt amount per second in kg
-    melt_rate_kg = 0 if melt_rate_kg < 0 else melt_rate_kg  # since negative melt is not possible
-    melt_amount_we = time_step * melt_rate_kg / 1000  # melt amount in m w.e. (1 m w.e. -> 1000 kg m-2)
-    print()
-    print("Actual SWE:", swe, "m w.e.")
-    if melt_amount_we > swe:
-        snow_melt_amount_we = swe
-        # and the ice melt begins:
-        ice_melt_amount_we = melt_amount_we - snow_melt_amount_we  # total melt amount in w.e. minus snow melt amount
+def calc_melt(melt_flux, swe, time_step):
+    """
+    Assuming that a glacier surface consist of two layers - 1) the snow with a given SWE on top of the 2) glacier ice,
+    computes the melt amount of these two layers separately. First the snow is being melt and after the SWE becomes zero,
+    the ice ablation starts.
+    :param time_step:
+    :param melt_flux: heat flux available for melt [W m-2]
+    :param swe: array of the snow water equivalent [m w.e.]
+    :return:
+    """
+    melt_rate_kg = melt_flux / latent_heat_of_fusion  # melt amount per second in kg of water [kg s-1]
+
+    # for the distributed model:
+    if isinstance(melt_rate_kg, np.ndarray):
+        melt_rate_kg[melt_rate_kg < 0] = 0
+        melt_amount_we = time_step * melt_rate_kg / 1000  # melt amount in [m w.e.] (1 m w.e. -> 1000 kg m-2)
+        snow_melt_amount_we = np.where(melt_amount_we > swe, swe, melt_amount_we)
+        ice_melt_amount_we = np.where(melt_amount_we > swe, melt_amount_we - snow_melt_amount_we, 0)
+
+    # melt_rate_kg may be float for lumped modelling:
     else:
-        snow_melt_amount_we = melt_amount_we
-        # and the ice was preserved from melt:
-        ice_melt_amount_we = 0
+        melt_rate_kg = 0 if melt_rate_kg < 0 else melt_rate_kg  # since negative melt is not possible
+        melt_amount_we = time_step * melt_rate_kg / 1000  # melt amount in [m w.e.] (1 m w.e. -> 1000 kg m-2)
+        if melt_amount_we > swe:
+            snow_melt_amount_we = swe  # snow melt can't exceed the real swe
+            # after all the snow is melt down, the ice ablation begins:
+            ice_melt_amount_we = melt_amount_we - snow_melt_amount_we  # total melt amount in w.e. minus snow melt amount
+        else:
+            snow_melt_amount_we = melt_amount_we
+            # and the ice was preserved from melt:
+            ice_melt_amount_we = 0
+
     return snow_melt_amount_we, ice_melt_amount_we
 
 
 def report(t_list, d_list, atmo_forcing):
     fig, ax = plt.subplots(4, 1)
+    for t in t_list:
+        print(t)
     t_list = np.transpose(t_list)
     for t in t_list:
         ax[0].plot(t)
     ax[0].title.set_text("Temperature by layers")
-    """
-    ########## DEBUG
-    for elem in d_list:
-        print(elem)
-    """
+
     d_list = np.transpose(d_list)
     print(len(x))
 
@@ -172,18 +188,6 @@ def report(t_list, d_list, atmo_forcing):
         ax[1].plot(d, label="Layer %s" % label)
         label += 1
 
-    """
-    # produces upside-down bar plot:
-    label = 1
-    prev = 0
-    for d in d_list:
-        ax[1].bar(x, d[1:], bottom=prev, label="Layer %s" % label)
-        if type(prev) == float:
-            prev = d[1:]
-        else:
-            prev += d[1:]
-        label += 1
-    """
     ax[1].legend()
     ax[1].title.set_text("Layer thickness")
 
@@ -200,16 +204,19 @@ def report(t_list, d_list, atmo_forcing):
 
 
 if __name__ == "__main__":
-    depths = [0.5, 0.5, 0.5, 0.5, 3.5]
-    temps = [-9.81, -5.5, -6.0, -6.75, -6.62, -4.68]
+    # depths = [0.5, 0.5, 0.5, 0.5, 3.5]
+    # temps = [-9.81, -5.5, -6.0, -6.75, -6.62, -4.68]
+
+    depths = [0.10, 0.4, 0.5, 0.5, 0.5, 3.5]
+    temps = [-9.81, -8.95, -5.5, -6.0, -6.75, -6.62, -4.68]
 
     t_list = [temps[:]]  # for plotting
     d_list = [depths[:]]  # for plotting
 
     days = 45
     x = np.arange(24 * days)
-    # atmo_forcing = np.sin(2 * np.pi * 24 * x / 580) * 100 + 50
-    atmo_forcing = np.sin((x % 24) * np.pi / 12) * 100 + 50
+    #atmo_forcing = np.sin((x % 24) * np.pi / 12) * 100 + 50
+    atmo_forcing = np.sin((x % 24) * np.pi / 12) * 300 + 250
     time_step = 3600  # 1 hour
 
     snow_depth = 1.00  # meters, not m w.e.(!)
@@ -218,7 +225,6 @@ if __name__ == "__main__":
     ice_depth = 0.00
     ice_depths = [ice_depth]  # for plotting
 
-    # for i, atmo_flux in zip(x, atmo_forcing):
     for atmo_flux in atmo_forcing:
         ####################################
         ### TEMPERATURE CHANGING ROUTINE  ##
@@ -232,7 +238,7 @@ if __name__ == "__main__":
         ###     SURFACE MELT ROUTINE     ###
         ####################################
         swe = snow_depth * snow_density / 1000
-        snow_melt_amount_we, ice_melt_amount_we = calc_melt(melt_flux, swe)
+        snow_melt_amount_we, ice_melt_amount_we = calc_melt(melt_flux, swe, time_step)
         swe -= snow_melt_amount_we  # updates snow water equivalent available for melt, can't be below zero
         print("Snow melt:", snow_melt_amount_we, "m w.e.")
         print("Ice melt:", ice_melt_amount_we, "m w.e.")
@@ -256,7 +262,7 @@ if __name__ == "__main__":
         ####################################
         ###   DEPTHS AND TEMPS UPDATING  ###
         ####################################
-        depths, temps = update_layers(depths, temps, surf_lowering)
+        # depths, temps = update_layers(depths, temps, surf_lowering)
         ###################################
 
     report(t_list, d_list, atmo_forcing)  # plots the final result

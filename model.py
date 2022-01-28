@@ -1,13 +1,16 @@
 import os
 import csv
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import msm
 from parameter_classes import CONST
 from parameter_classes import AwsParams, DistributedParams, OutputRow
 from turbo import calc_turbulent_fluxes
 from raster_utils import show_me, load_raster, export_array_as_geotiff, OUT_DIR
 from interpolator import interpolate_array
 from saga_lighting import simulate_lighting, cleanup_sgrd
+from msm import calc_melt
 
 
 class Energy:
@@ -34,12 +37,13 @@ class Energy:
 
         print("Loading base DEM...")
         self.base_dem_array, self.geotransform, self.projection = load_raster(base_dem_path, self.outlines_path)
-        self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
+        self.total_snow_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
         self.total_ice_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)
 
-        self.swe_array = np.zeros_like(self.base_dem_array, dtype=np.float32)  # snow cover may be added after via add_snow method
-        ## DEBUG:
-        self.swe_array.fill(0.03)
+        self.swe_array = np.zeros_like(self.base_dem_array,
+                                       dtype=np.float32)  # snow cover may be added after via add_snow method
+        # DEBUG:
+        # self.swe_array.fill(0.005)
 
     def _init_constants(self):
         self.CONST = CONST
@@ -48,30 +52,21 @@ class Energy:
         print("Initialized snow cover state (SWE) from %s" % swe_map_path)
         self.swe_array = load_raster(swe_map_path, self.outlines_path)[0]
 
-    def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None, solar_only=False, png=True, v=True):
+    def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None, solar_only=False,
+              png=True, v=True, use_msm=False):
         if (aws_file is not None) and (albedo_maps is not None):
             # loading albedo maps from geotiff files into arrays:
             self.albedo_arrays = {}
             for key in albedo_maps:  # albedo_maps contains file paths
-                self.albedo_arrays[key] = load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True, v=v)[0]
+                self.albedo_arrays[key] = load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True, v=v)[
+                    0]
 
-            # creates an array to store a total melt over the period:
-            # self.total_melt_array = np.zeros_like(self.base_dem_array, dtype=np.float32)  # already created in the __init__
+            self.fill_header(out_file)
 
-            # self.modelled_days = 0
-
-            with open(out_file, "w") as output:
-                output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
-                output.write("\nDATE,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT,MELT")  # header
-
-            with open(aws_file) as csvfile:
-                reader = csv.DictReader(csvfile)
-                self.input_list = list(reader)
-
+            self.input_list = self.read_input_file(aws_file)
             for i in range(0, len(self.input_list)):
                 row = self.input_list[i]
-                print("")
-                print("Processing %s..." % row["DATE"])
+                print("\nProcessing %s..." % row["DATE"])
                 self.current_date_str = row["DATE"]
 
                 # setting meteo parameters for the current date:
@@ -84,39 +79,40 @@ class Energy:
 
                 # interpolating albedo map for the current date:
                 self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
-                self.albedo = np.where(self.swe_array > 0, 0.80, self.albedo)
+                self.albedo = np.where(self.swe_array > 0, 0.65, self.albedo)
                 if png:
                     show_me(self.albedo, title="%s albedo" % self.current_date_str)
 
-                # parsing timestamps to compute time difference in seconds between input data rows:
                 try:
                     time_step = self.get_time_step(self.input_list, i, "%Y%m%d")
                 except ValueError:
                     time_step = self.get_time_step(self.input_list, i, "%Y%m%d %H:%M:%S")
                 # print("########## TIME STEP IS: %s" % time_step)  # DEBUG
 
-                melt_amount = self.run(time_step, solar_only=solar_only, png=png, v=v)
-                print("Ice melt within time step: %.3f m w.e." % np.nanmean(melt_amount))
+                melt_flux = self.run(time_step, solar_only=solar_only, png=png, v=v, use_msm=use_msm)
+                print("Melt flux: %.2f W m-2" % np.nanmean(melt_flux))
 
-                stats = (str(self.output_list[-1]), float(np.nanmean(melt_amount)))
+                stats = str(self.output_list[-1])
                 with open(out_file, "a") as output:
-                    output.write("\n%s,%.3f" % stats)
+                    output.write("\n%s" % stats)
 
-                self.total_melt_array += melt_amount
-                # how much snow or ice was melted?
-                swe_array_raw = self.swe_array - melt_amount
-                self.swe_array = np.where(swe_array_raw > 0, swe_array_raw, 0)
-                ice_melt_array = self.swe_array - swe_array_raw
-                self.total_ice_melt_array += ice_melt_array
+                snow_melt_amount_we, ice_melt_amount_we = calc_melt(melt_flux, self.swe_array, time_step)
+                print("Snow/ice melt amount: %.5f/%.5f m w.e." % (np.nanmean(snow_melt_amount_we), np.nanmean(ice_melt_amount_we)))
+                # then we should update snow reservoir:
+                self.swe_array -= snow_melt_amount_we
+                # ^^^ no need to check if the new swe_array is below zero: calc_melt function did this already
+                self.total_snow_melt_array += snow_melt_amount_we
+                self.total_ice_melt_array += ice_melt_amount_we
+
                 if png:
                     show_me(self.swe_array, title="%s snow remnant, m w.e." % self.current_date_str)
                     show_me(self.total_ice_melt_array, title="%s total ice ONLY melt, m w.e." % self.current_date_str)
 
-            # self.modelled_days += 1
             # the final result is always exported despite the "v" and "png" options:
-            show_me(self.total_melt_array, title="Total melt over the period", units="m w.e.")
-            export_array_as_geotiff(self.total_melt_array, self.geotransform, self.projection,
-                                    os.path.join(OUT_DIR, "total_melt.tiff"))
+            for arr, title in zip((self.total_ice_melt_array, self.total_snow_melt_array), ("total_melt_ice", "total_melt_snow")):
+                show_me(arr, title="Total melt over the period", units="m w.e.")
+                export_array_as_geotiff(arr, self.geotransform, self.projection,
+                                        os.path.join(OUT_DIR, "%s.tiff" % title))
 
     @staticmethod
     def get_time_step(time_list, i, pattern):
@@ -145,17 +141,20 @@ class Energy:
         else:
             raise ValueError("Wrong value encountered")
 
-    def run(self, time_step_seconds, solar_only=False, png=True, v=True):
+    def run(self, time_step_seconds, solar_only=False, png=True, v=True, use_msm=False):
         if not solar_only:
             # TURBULENT HEAT FLUXES
             # at the AWS (needed to know Monin-Obukhov length L), non-distributed:
             aws = self.aws
-            sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(aws.z, aws.wind_speed, aws.Tz, aws.P,
+            # TODO: pass the surface temperature into the turbulence formulas
+            sensible_flux, latent_flux, monin_obukhov_length = calc_turbulent_fluxes(aws.z, aws.wind_speed, aws.Tz,
+                                                                                     aws.P,
                                                                                      aws.rel_humidity)
 
             # at the whole glacier surface, distributed:
             params = self.params
-            sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(aws.z, params.wind_speed,
+            sensible_flux_array, latent_flux_array, monin_obukhov_length = calc_turbulent_fluxes(aws.z,
+                                                                                                 params.wind_speed,
                                                                                                  params.Tz, params.P,
                                                                                                  params.rel_humidity,
                                                                                                  L=monin_obukhov_length)
@@ -164,6 +163,7 @@ class Energy:
             # export_array_as_geotiff(latent_flux_array, self.geotransform, self.projection, "/home/tepex/PycharmProjects/energy/gtiff/latent.tiff")
 
             # LONGWAVE RADIATION FLUX
+            # TODO: pass the surface temperature into the longwave radiation formulas
             lwd, lwu = self.calc_longwave()
             rl = lwd - lwu
 
@@ -181,17 +181,25 @@ class Energy:
         # SHORTWAVE RADIATION FLUX
         rs = self.calc_shortwave(time_step=time_step_seconds, png=png, v=v)
 
-        out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array)
-        self.output_list.append(out)
+        atmo_flux = rs + lwd - lwu + sensible_flux_array + latent_flux_array
+        # TODO: here we should pass atmo_flux into MSM as the atmospheric forcing, and get back the melt_flux
+        if use_msm:
+            # g_flux = msm.tick()
+            pass
+        else:
+            # if we don't use the MSM simulation, just assume the in-glacier heat flux negligible:
+            g_flux = np.zeros(atmo_flux.shape)
+        melt_flux = atmo_flux + g_flux
+        melt_flux[melt_flux < 0] = 0
 
-        melt_amount = self.calc_melt_amount(out.melt_rate, time_step=time_step_seconds)
+        out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array, atmo_flux, g_flux, melt_flux)
+        self.output_list.append(out)
 
         if png:
             show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2")
-            show_me(out.melt_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
-            show_me(melt_amount, title="%s Ice melt" % self.current_date_str, units="m w.e.")
+            show_me(melt_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2")
 
-        return melt_amount
+        return melt_flux
 
     def calc_shortwave(self, time_step, png=True, v=True):
         self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str,
@@ -200,7 +208,7 @@ class Energy:
         self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation), time_step=time_step)
         if png:
             show_me(self.incoming_shortwave, title="%s Potential Incoming Solar Radiation" % self.current_date_str,
-                    units="W / m-2")
+                    units="W m-2")
 
         # potential incoming solar radiation into real:
         self.incoming_shortwave *= self.potential_to_real_insolation_factor(time_step, v=v)
@@ -235,14 +243,14 @@ class Energy:
         else:
             factor = real_at_aws / potential_at_aws
         if v:
-            print("Potential incoming solar radiation at AWS location is %.1f" % potential_at_aws)
-            print("Observed incoming solar radiation at AWS location is %.1f" % real_at_aws)
-            print("Scale factor for solar radiation is %.2f" % factor)
+            print("Potential/observed/scaling factor for incoming solar radiation at AWS location is %.1f/%.1f/%.3f" %
+                  (potential_at_aws, real_at_aws, factor))
         return factor
 
     @staticmethod
     def calc_melt_amount(ice_heat_rate, time_step=None):
         """
+        DEPRECATED - was used for ice ablation only. Now we separate snow and ice melt.
         Computes a melt ice layer [m w.e.]
         :param time_step:
         :param ice_heat_rate:
@@ -284,6 +292,19 @@ class Energy:
         if time_step is None:
             time_step = 86400
         return insol / time_step
+
+    @staticmethod
+    def fill_header(out_file):
+        with open(out_file, "w") as output:
+            output.write("# DATE format is %Y%m%d, MELT is in m w.e., BALANCES and FLUXES are in W m-2")
+            output.write(
+                "\nDATE,RS_BALANCE,RL_BALANCE,LWD_FLUX,SENSIBLE,LATENT,ATMO_BALANCE,INSIDE_GLACIER_FLUX,MELT_FLUX")  # heade
+
+    @staticmethod
+    def read_input_file(input_file):
+        with open(input_file) as csvfile:
+            reader = csv.DictReader(csvfile)
+            return list(reader)
 
 
 if __name__ == "__main__":

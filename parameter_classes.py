@@ -23,12 +23,13 @@ class OutputRow:
     rs_balance: np.array
     sensible: np.array
     latent: np.array
+    atmo_flux: np.array
+    g_flux: np.array  # in-glacier heat flux
+    melt_flux: np.array
     date_time: datetime = field(init=False)
     date_time_str_output: str = field(init=False)
     rl_balance: np.array = field(init=False)
     tr_balance: np.array = field(init=False)
-    melt_flux: np.array = field(init=False)
-    melt_rate: np.array = field(init=False, metadata={"units": "m w.e. per s"})
 
     def __post_init__(self):
         """
@@ -39,13 +40,6 @@ class OutputRow:
         """
         self.rl_balance = self.lwd - self.lwu
         self.tr_balance = self.sensible + self.latent
-        #
-        self.melt_flux = self.rs_balance + self.rl_balance + self.tr_balance
-        #
-        latent_heat_of_fusion = CONST["latent_heat_of_fusion"]
-        ice_density = CONST["ice_density"]
-        self.melt_rate = self.melt_flux / (ice_density * latent_heat_of_fusion)
-        self.melt_rate[self.melt_rate < 0] = 0  # since negative ice melt is not possible
 
     def __repr__(self):
         mean_rs = float(np.nanmean(self.rs_balance))
@@ -53,8 +47,11 @@ class OutputRow:
         mean_lwd = float(np.nanmean(self.lwd))
         mean_sensible = float(np.nanmean(self.sensible))
         mean_latent = float(np.nanmean(self.latent))
-        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f" % (
-            self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent)
+        mean_atmo = float(np.nanmean(self.atmo_flux))
+        mean_g = float(np.nanmean(self.g_flux))
+        mean_melt = float(np.nanmean(self.melt_flux))
+        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f" % (
+            self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent, mean_atmo, mean_g, mean_melt)
 
 
 @dataclass
@@ -139,7 +136,7 @@ class DistributedParams:
 
     def __interpolate_t_air(self, v_gradient=None):
         if v_gradient is None:
-            v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 m
+            v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 km
         return self.__interpolate_on_dem(self.aws.t_air, v_gradient)
 
     def __interpolate_pressure(self, v_gradient=None):
@@ -180,7 +177,7 @@ class DistributedParams:
         array = getattr(self, param_name)
         title = self.get_desc(param_name)
         units = self.get_units(param_name)
-        show_me(array, title=title, units=units, show=False, verbose=True)
+        show_me(array, title=title, units=units, show=False, verbose=False)
 
 
 def to_kelvin(t_celsius):
