@@ -96,6 +96,8 @@ class AwsParams:
 class DistributedParams:
     aws: AwsParams
     dem: np.array = field(metadata={"units": "m", "desc": "Elevation"})
+    date_str: str
+    export_png: bool
     delta_dem: np.array = field(init=False, metadata={"units": "m",
                                                       "desc": "Elevation difference relative to AWS location"})
     # ^ elevation differences relative to aws location
@@ -112,23 +114,24 @@ class DistributedParams:
     def __post_init__(self):
         self.delta_dem = self.dem - self.aws.elev
         self.t_air = self.__interpolate_t_air()
-        self.param_to_png("t_air")
         self.Tz = to_kelvin(self.t_air)
         # self.t_surf = self.__fill_array_with_one_value(self.aws.t_surf)
         self.t_surf = self.aws.t_surf  # now the surface temperature is already distributed
-        self.param_to_png("t_surf")
         self.Tz_surf = to_kelvin(self.t_surf)
         self.wind_speed = self.__fill_array_with_one_value(self.aws.wind_speed)
-        self.param_to_png("wind_speed")
         self.pressure = self.__interpolate_pressure()
-        self.param_to_png("pressure")
         self.P = self.pressure * 100  # Pascals from hPa
         self.e = self.__interpolate_e()
-        self.param_to_png("e")
         self.e_max = _calc_e_max(self.Tz, self.P)
-        self.param_to_png("e_max")
         self.rel_humidity = np.divide(self.e, self.e_max)  # self.e / self.e_max
-        self.param_to_png("rel_humidity")
+        if self.export_png:
+            self.param_to_png("t_air", dir="t_air")
+            self.param_to_png("t_surf", dir="t_surf")
+            self.param_to_png("wind_speed", dir="wind speed")
+            self.param_to_png("pressure", dir="air pressure")
+            self.param_to_png("e", dir="e")
+            self.param_to_png("e_max", dir="e")
+            self.param_to_png("rel_humidity", dir="rel humidity")
 
     def get_meta(self, field_name):
         return self.__dataclass_fields__[field_name].metadata
@@ -178,11 +181,12 @@ class DistributedParams:
         """
         return value + self.delta_dem * v_gradient
 
-    def param_to_png(self, param_name):
+    def param_to_png(self, param_name, dir=None):
         array = getattr(self, param_name)
         title = self.get_desc(param_name)
+        title = "%s %s" % (self.date_str, title)
         units = self.get_units(param_name)
-        show_me(array, title=title, units=units, show=False, verbose=False)
+        show_me(array, title=title, units=units, show=False, verbose=False, dir=dir)
 
 
 def to_kelvin(t_celsius):
