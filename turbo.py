@@ -31,7 +31,7 @@ CONST = {
     "es": 611,  # water vapour pressure at the melting ice/snow surface [Pa]
     "latent_heat_vaporization": 2.514 * 10 ** 6,  # latent heat of water vaporization [J kg-1]
     "latent_heat_sublimation": 2.849 * 10 ** 6,  # latent heat of water ice sublimation [J kg-1]
-    "zm": 0.01  # (empirical) roughness length for momentum (for wind) [m]
+    "zm": 0.001  # empirical roughness length for momentum (for wind) over the ice/snow surface [m]
 }
 
 
