@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
 
 
-def show_me(array, title=None, units=None, show=False, verbose=False):
+def show_me(array, title=None, units=None, show=False, dir=None, verbose=False):
+    OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
     try:
         plt.imshow(array)
         mean_str = ""
@@ -19,6 +20,11 @@ def show_me(array, title=None, units=None, show=False, verbose=False):
         cb = plt.colorbar()
         if units is not None:
             cb.set_label(units)
+        if dir is not None:
+            OUT_DIR = os.path.join(OUT_DIR, dir)
+        if not os.path.exists(OUT_DIR):
+            os.makedirs(OUT_DIR)
+            print("Directory created: %s" % OUT_DIR)
         plt.savefig(os.path.join(OUT_DIR, "%s.png" % title))
         if show:
             plt.show()
@@ -73,3 +79,10 @@ def export_array_as_geotiff(array_to_export, geotransform, projection, path, sca
     ds = None
 
     return path
+
+
+def get_value_by_real_coords(array, gt, easting, northing):
+    ul_x, x_dist, x_skew, ul_y, y_skew, y_dist = gt
+    pixel = int((easting - ul_x) / x_dist)
+    line = -int((ul_y - northing) / y_dist)
+    return array[line][pixel]
