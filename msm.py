@@ -7,6 +7,13 @@ ice_density = CONST["ice_density"]
 snow_density = CONST["snow_density"]
 
 
+def my_print(flux_title, flux_value):
+    if isinstance(flux_value, np.ndarray):
+        pass
+    else:
+        print("%s:" % flux_title, round(flux_value, 1), "W/m^2")
+
+
 def calc_gradients(depths, temps):
     g = []
     for t0, t1, d in zip(temps, temps[1:], depths):
@@ -51,41 +58,52 @@ def tick(depths, temps, timestep, flux=None, snow_depth=None):
             k = k_ice
             rho = rho_ice
         else:
-            if snow_depth >= depths[i]:
-                snow_ratio = 1
+            if isinstance(snow_depth, np.ndarray):
+                snow_ratio = np.where(snow_depth > depths[i], 1, snow_depth / depths[i])
             else:
-                snow_ratio = snow_depth / depths[i]
+                if snow_depth >= depths[i]:
+                    snow_ratio = 1
+                else:
+                    snow_ratio = snow_depth / depths[i]
             k = snow_ratio * k_snow + (1 - snow_ratio) * k_ice
             rho = snow_ratio * rho_snow + (1 - snow_ratio) * rho_ice
             snow_depth -= depths[i]
-            snow_depth = 0 if snow_depth < 0 else snow_depth
+            if isinstance(snow_depth, np.ndarray):
+                snow_depth[snow_depth < 0] = 0
+            else:
+                snow_depth = 0 if snow_depth < 0 else snow_depth
         ################################################################################################
         if depths[i] == 0:
             new_temps.append(temps[i])
             continue  # all the zero-thickness layers do not exist any more, just skip them
         if surf:  # executed for the first layer with a non-zero thickness
-            delta_t = k * g[i] / depths[i]
+            # delta_t = k * g[i] / depths[i]
             ground_flux = k * g[i] * c * rho
-            # print(ground_flux, "W/m^2")
+            print()
+            my_print("Ground flux", ground_flux)
 
             full_flux = flux + ground_flux
-            # print(full_flux, "W/m^2")
+            my_print("Full flux (atmo + ground)", full_flux)
             q0 = -temps[i] * c * rho * depths[i] / timestep
-            # print(q0, "W/m^2")
+            my_print("Heat needed to increase the temperature up to melting point", q0)
 
-            # if the full heat flux is not enough to heat the layer up to the melting temperature,
-            # then the heat available for melt is zero:
-            qm = 0 if full_flux <= q0 else full_flux - q0
-            # print("Qm", qm, "W/m^2")
+            # computing heat flux available for melt (qm), can't be below zero:
+            qm = full_flux - q0
+            if isinstance(qm, np.ndarray):
+                qm[qm < 0] = 0
+            else:
+                qm = 0 if qm < 0 else qm
+            my_print("Heat available for melt", qm)
+            delta_t = (full_flux - qm) / (c * rho * depths[i])
+            my_print("Flux which changes the layer temperature", (full_flux - qm))
 
-            delta_t += (flux - qm) / (c * rho * depths[i])
             surf = False
         else:  # other layers below the surface
             delta_t = k * (g[i] - g[i - 1]) / depths[i]
             # print("delta t is", delta_t)
         new_temps.append(temps[i] + delta_t * timestep)
     new_temps.append(temps[-1])  # temperature of the deepest layer is constant
-    return new_temps, qm  # TODO: return in-glacier flux instead of melt flux
+    return new_temps, qm, ground_flux
 
 
 def update_layers(depths, temps, surf_lowering):
@@ -109,7 +127,7 @@ def update_layers(depths, temps, surf_lowering):
                 depths[i] = 0
                 # print(len(depths), temps)
                 temps[i] = np.nan
-    print(depths, temps)
+    # print(depths, temps)
     thickness_threshold = 0.03  # too thin layers produce HUGE gradients inappropriate for our time step
     depths, temps = filter_layers(depths, temps, thickness_threshold)
     return depths, temps
@@ -136,7 +154,7 @@ def filter_layers(depths, temps, threshold):
     return depths, temps
 
 
-def calc_melt(melt_flux, swe, time_step):
+def calc_melt_old(melt_flux, swe, time_step):
     """
     Assuming that a glacier surface consist of two layers - 1) the snow with a given SWE on top of the 2) glacier ice,
     computes the melt amount of these two layers separately. First the snow is being melt and after the SWE becomes zero,
@@ -171,17 +189,32 @@ def calc_melt(melt_flux, swe, time_step):
     return snow_melt_amount_we, ice_melt_amount_we
 
 
+def calc_melt(melt_flux, swe, time_step):
+    q = melt_flux * time_step  # the amount of heat in J kg-1
+    # print("Q is", q)
+    total_melt_kg = q / latent_heat_of_fusion  # kg m-2
+    total_melt_we = total_melt_kg / 1000  # meters of w.e.
+    if isinstance(total_melt_we, np.ndarray):
+        snow_melt_we = np.where(total_melt_we > swe, swe, total_melt_we)  # snow melt could not exceed the current snow remnant
+    else:
+        snow_melt_we = swe if total_melt_we > swe else total_melt_we
+    ice_melt_we = total_melt_we - snow_melt_we
+    return snow_melt_we, ice_melt_we
+
+
 def report(t_list, d_list, atmo_forcing):
     fig, ax = plt.subplots(4, 1)
+    """
     for t in t_list:
         print(t)
+    """
     t_list = np.transpose(t_list)
     for t in t_list:
         ax[0].plot(t)
     ax[0].title.set_text("Temperature by layers")
 
     d_list = np.transpose(d_list)
-    print(len(x))
+    # print(len(x))
 
     label = 1
     for d in d_list[:-1]:
@@ -207,8 +240,8 @@ if __name__ == "__main__":
     # depths = [0.5, 0.5, 0.5, 0.5, 3.5]
     # temps = [-9.81, -5.5, -6.0, -6.75, -6.62, -4.68]
 
-    depths = [0.10, 0.4, 0.5, 0.5, 0.5, 3.5]
-    temps = [-9.81, -8.95, -5.5, -6.0, -6.75, -6.62, -4.68]
+    depths = [0.10, 0.4, 0.5, 0.5, 0.5, 3.0]
+    temps = [-9.81, -8.95, -5.5, -6.75, -6.62, -6.18, -4.68]  # 24 April 00:00
 
     t_list = [temps[:]]  # for plotting
     d_list = [depths[:]]  # for plotting
@@ -216,8 +249,8 @@ if __name__ == "__main__":
     days = 45
     x = np.arange(24 * days)
     #atmo_forcing = np.sin((x % 24) * np.pi / 12) * 100 + 50
-    atmo_forcing = np.sin((x % 24) * np.pi / 12) * 300 + 250
-    time_step = 3600  # 1 hour
+    atmo_forcing = np.sin((x % 24) * np.pi / 12) * 100 + 20
+    time_step = 3600 # 1 hour
 
     snow_depth = 1.00  # meters, not m w.e.(!)
     snow_depths = [snow_depth]  # for plotting
@@ -229,8 +262,9 @@ if __name__ == "__main__":
         ####################################
         ### TEMPERATURE CHANGING ROUTINE  ##
         ####################################
-        temps, melt_flux = tick(depths, temps, time_step, flux=atmo_flux, snow_depth=snow_depth)
+        temps, melt_flux, glacier_flux = tick(depths, temps, time_step, flux=atmo_flux, snow_depth=snow_depth)
         temps = [round(x, 3) for x in temps]
+        # print(temps, melt_flux, glacier_flux)
         t_list.append(temps[:])
         d_list.append(depths[:])
 
