@@ -79,7 +79,7 @@ def tick(depths, temps, timestep, flux=None, snow_depth=None):
         if surf:  # executed for the first layer with a non-zero thickness
             # delta_t = k * g[i] / depths[i]
             ground_flux = k * g[i] * c * rho
-            print()
+            # print()
             my_print("Ground flux", ground_flux)
 
             full_flux = flux + ground_flux
@@ -190,7 +190,7 @@ def calc_melt_old(melt_flux, swe, time_step):
 
 
 def calc_melt(melt_flux, swe, time_step):
-    q = melt_flux * time_step  # the amount of heat in J kg-1
+    q = melt_flux * time_step  # the amount of heat in J m-2
     # print("Q is", q)
     total_melt_kg = q / latent_heat_of_fusion  # kg m-2
     total_melt_we = total_melt_kg / 1000  # meters of w.e.
