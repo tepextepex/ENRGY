@@ -41,12 +41,13 @@ def simulate_lighting(dem_path, date, out_dir=None, time_step=86400):
 
     cmd = "saga_cmd ta_lighting 2 -GRD_DEM %s -GRD_LINKE_DEFAULT 3 -GRD_TOTAL '%s' -SOLARCONST 1367.0 \
     -UNITS 0 -SHADOW 1 -LOCATION 1 -PERIOD 1 -DAY %s -HOUR_STEP 0.25 -HOUR_RANGE_MIN %s -HOUR_RANGE_MAX %s \
-    -METHOD 2 -LUMPED 80" % params
+    -METHOD 2 -LUMPED 70" % params  # [!] DO NOT USE -LUMPED 80 AND ABOVE IT CAUSES FATAL BUGS
     # print(cmd)
     # os.system(cmd)  # DEPRECATED in Python 3, but still works
-    out, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
+    # out, err = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).communicate()
     # parsing SAGA command-line output is too complicated
     # it's easier to check if output file was created or not:
+    status = subprocess.call(cmd, shell=True, stdout=subprocess.PIPE)
     if os.path.isfile(total_path):
         return total_path
     else:
