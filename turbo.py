@@ -31,7 +31,7 @@ CONST = {
     "es": 611,  # water vapour pressure at the melting ice/snow surface [Pa]
     "latent_heat_vaporization": 2.514 * 10 ** 6,  # latent heat of water vaporization [J kg-1]
     "latent_heat_sublimation": 2.849 * 10 ** 6,  # latent heat of water ice sublimation [J kg-1]
-    "zm": 0.001  # empirical roughness length for momentum (for wind) over the ice/snow surface [m]
+    "zm": 0.0005  # empirical roughness length for momentum (for wind) over the ice/snow surface [m]
 }
 
 
@@ -221,18 +221,27 @@ def _calc_minus_psi_m(z, L):
     Computes stability function Psi-M in integrated form
     :return:
     """
+    a = 0.7
+    b = 0.75
+    c = 5
+    d = 0.35
+
     zeta = z / L
-    if zeta >= 0:
-        # under stable conditions:
-        a = 0.7
-        b = 0.75
-        c = 5
-        d = 0.35
-        return a * zeta + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d
-    else:
-        # under unstable conditions:
+    if isinstance(zeta, np.ndarray):
+        psi_m = np.zeros(zeta.shape)
         x = _calc_Dyer_x(zeta)
-        return -(2 * np.log((1 + x) / 2) + np.log((1 + x ** 2) / 2) - 2 * np.arctan(x) + pi / 2)
+        psi_m = np.where(zeta >= 0,
+                         a * zeta + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d,
+                         -(2 * np.log((1 + x) / 2) + np.log((1 + x ** 2) / 2) - 2 * np.arctan(x) + pi / 2))
+        return psi_m
+    else:
+        if zeta >= 0:
+            # under stable conditions:
+            return a * zeta + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d
+        else:
+            # under unstable conditions:
+            x = _calc_Dyer_x(zeta)
+            return -(2 * np.log((1 + x) / 2) + np.log((1 + x ** 2) / 2) - 2 * np.arctan(x) + pi / 2)
 
 
 def _calc_minus_psi_h_or_e(z, L):
@@ -240,18 +249,27 @@ def _calc_minus_psi_h_or_e(z, L):
     Computes stability function Psi-H or Psi-E in integrated form
     :return:
     """
+    a = 0.7
+    b = 0.75
+    c = 5
+    d = 0.35
+
     zeta = z / L
-    if zeta >= 0:
-        # under stable conditions:
-        a = 0.7
-        b = 0.75
-        c = 5
-        d = 0.35
-        return (1 + 2 * a * zeta / 3) ** 1.5 + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d - 1
-    else:
-        # under unstable conditions:
+    if isinstance(zeta, np.ndarray):
+        psi = np.zeros(zeta.shape)
         x = _calc_Dyer_x(zeta)
-        return -(2 * np.log((1 + x ** 2) / 2))
+        psi = np.where(zeta >= 0,
+                       (1 + 2 * a * zeta / 3) ** 1.5 + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d - 1,
+                       -(2 * np.log((1 + x ** 2) / 2)))
+        return psi
+    else:
+        if zeta >= 0:
+            # under stable conditions:
+            return (1 + 2 * a * zeta / 3) ** 1.5 + b * (zeta - c / d) * np.exp(-d * zeta) + b * c / d - 1
+        else:
+            # under unstable conditions:
+            x = _calc_Dyer_x(zeta)
+            return -(2 * np.log((1 + x ** 2) / 2))
 
 
 def _calc_Dyer_x(zeta):
