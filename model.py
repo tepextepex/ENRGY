@@ -404,8 +404,8 @@ class Energy:
         return ice_melt
 
     def calc_longwave(self):
-        sigma = 5.669 * 10 ** -8  # Stefan–Boltzmann constant
-        eps = 0.98  # thermal emissivity of glacier ice
+        sigma = 5.70 * 10 ** -8  # Stefan–Boltzmann constant
+        eps = 0.998  # thermal emissivity of glacier ice
         lwu = eps * sigma * self.params.Tz_surf ** 4
         lwd = (0.765 + 0.22 * self.aws.cloudiness ** 3) * sigma * self.params.Tz ** 4
         return lwd, lwu
