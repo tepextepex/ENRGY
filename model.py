@@ -25,6 +25,10 @@ class Energy:
         self.png_export = 1  # will export every n-th png, default is exporting on the each time step
         self.result_export_dates = None
 
+        # for potential incoming solar radiation:
+        self.export_potential = False
+        self.use_precomputed = False
+
         self.aws = None
         self.params = None
         self.albedo = None
@@ -146,7 +150,7 @@ class Energy:
                 mean_ice_melt = float(np.nanmean(ice_melt_amount_we))
                 mean_swe = float(np.nanmean(self.swe_array))
                 print("Snow/ice melt amount / snow remaining: %.5f/%.5f/%.5f m w.e." % (
-                mean_snow_melt, mean_ice_melt, mean_swe))
+                    mean_snow_melt, mean_ice_melt, mean_swe))
 
                 # snow cover percent:
                 snow_px = np.sum(self.swe_array > 0)
@@ -160,7 +164,8 @@ class Energy:
                 self.total_snow_melt_array += snow_melt_amount_we
                 self.total_ice_melt_array += ice_melt_amount_we
 
-                stats = "%s,%.4f,%.4f,%.4f,%.0f" % (str(self.output_list[-1]), mean_snow_melt, mean_ice_melt, mean_swe, snow_cover_percent)
+                stats = "%s,%.4f,%.4f,%.4f,%.0f" % (
+                str(self.output_list[-1]), mean_snow_melt, mean_ice_melt, mean_swe, snow_cover_percent)
                 with open(out_file, "a") as output:
                     output.write("\n%s" % stats)
 
@@ -279,6 +284,7 @@ class Energy:
             lwu = 0
             sensible_flux_array = 0
             latent_flux_array = 0
+            point_t_surf = 273.15
 
         # SHORTWAVE RADIATION FLUX
         rs = self.calc_shortwave(time_step=time_step_seconds, png=png, v=v)
@@ -325,8 +331,13 @@ class Energy:
         return melt_flux
 
     def calc_shortwave(self, time_step, png=True, v=True):
-        self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str,
-                                                            time_step=time_step)
+        if self.use_precomputed:
+            self.potential_incoming_sr_path = os.path.join(os.path.dirname(self.base_dem_path),
+                                                           "%s_total.sdat" % self.current_date_str)
+            print("Reading insolation from %s" % self.potential_incoming_sr_path)
+        else:
+            self.potential_incoming_sr_path = simulate_lighting(self.base_dem_path, self.current_date_str,
+                                                                time_step=time_step)
         self.potential_incoming_radiation = load_raster(self.potential_incoming_sr_path, self.outlines_path, v=v)[0]
         self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation), time_step=time_step)
         if png:
@@ -338,7 +349,9 @@ class Energy:
         if png:
             show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str,
                     units="W m-2", dir="Fluxes")
-        cleanup_sgrd(self.potential_incoming_sr_path)
+
+        if not self.export_potential:
+            cleanup_sgrd(self.potential_incoming_sr_path)
 
         return self.incoming_shortwave * (1 - self.albedo)
 
