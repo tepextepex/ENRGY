@@ -18,9 +18,8 @@ class Energy:
         self._init_constants()
 
         self.current_date_str = None
-        # self.modelled_days = 0
         self.input_list = []
-        self.output_list = []
+        self.output_row = None
 
         self.png_export = 1  # will export every n-th png, default is exporting on the each time step
         self.result_export_dates = None
@@ -118,7 +117,8 @@ class Energy:
 
                 # setting meteo parameters for the current date:
                 r_hum = self.heuristic_unit_guesser(float(row["HUMID"]), 100)
-                cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)
+                # cld = self.heuristic_unit_guesser(float(row["CLOUDINESS"]), 10)  # causes a bug when value = 1: should be treated as 0.1, but returned as 1.0 instead
+                cld = float(row["CLOUDINESS"])
 
                 if self.layer_temperatures is None:
                     t_surf = np.zeros(self.base_dem_array.shape)
@@ -133,8 +133,8 @@ class Energy:
 
                 # interpolating albedo map for the current date:
                 self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
-                # albedo of snow can't be lower than 0.70:
-                self.albedo = np.where((self.swe_array > 0) & (self.albedo < 0.70), 0.70, self.albedo)
+                # albedo of snow can't be lower than 0.65:
+                self.albedo = np.where((self.swe_array > 0) & (self.albedo < 0.65), 0.65, self.albedo)
                 # albedo of ice can't be higher than 0.50:
                 self.albedo = np.where((self.swe_array <= 0) & (self.albedo > 0.50), 0.50, self.albedo)
                 """
@@ -165,7 +165,7 @@ class Energy:
                 self.total_ice_melt_array += ice_melt_amount_we
 
                 stats = "%s,%.4f,%.4f,%.4f,%.0f" % (
-                str(self.output_list[-1]), mean_snow_melt, mean_ice_melt, mean_swe, snow_cover_percent)
+                    str(self.output_row), mean_snow_melt, mean_ice_melt, mean_swe, snow_cover_percent)
                 with open(out_file, "a") as output:
                     output.write("\n%s" % stats)
 
@@ -317,9 +317,8 @@ class Energy:
             melt_flux = atmo_flux + g_flux
             melt_flux[melt_flux < 0] = 0
 
-        out = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array, atmo_flux, g_flux,
+        self.output_row = OutputRow(self.current_date_str, lwd, lwu, rs, sensible_flux_array, latent_flux_array, atmo_flux, g_flux,
                         melt_flux, point_t_surf - 273.15)
-        self.output_list.append(out)
 
         if png:
             show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2",
@@ -350,7 +349,7 @@ class Energy:
             show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str,
                     units="W m-2", dir="Fluxes")
 
-        if not self.export_potential:
+        if (not self.export_potential) and (not self.use_precomputed):
             cleanup_sgrd(self.potential_incoming_sr_path)
 
         return self.incoming_shortwave * (1 - self.albedo)
@@ -405,7 +404,7 @@ class Energy:
 
     def calc_longwave(self):
         sigma = 5.70 * 10 ** -8  # Stefan–Boltzmann constant
-        eps = 0.998  # thermal emissivity of glacier ice
+        eps = 0.98  # thermal emissivity of glacier ice
         lwu = eps * sigma * self.params.Tz_surf ** 4
         lwd = (0.765 + 0.22 * self.aws.cloudiness ** 3) * sigma * self.params.Tz ** 4
         return lwd, lwu
