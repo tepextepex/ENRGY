@@ -86,7 +86,7 @@ class Energy:
             show_me(temp_array, title="Layer %s temperature" % i, dir="Glacier body temperature")
             i += 1
 
-    def add_result_export_dates(self, date_str_list):
+    def add_checkpoints(self, date_str_list):
         dts = [s + " 12:00:00" for s in date_str_list]
         self.result_export_dates = dts
 
