@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
 
 
-def show_me(array, title=None, units=None, show=False, dir=None, verbose=False):
-    OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
+def show_me(array, out_dir, title=None, units=None, show=False, dir=None, verbose=False):
     try:
         plt.imshow(array)
         mean_str = ""
@@ -21,11 +20,11 @@ def show_me(array, title=None, units=None, show=False, dir=None, verbose=False):
         if units is not None:
             cb.set_label(units)
         if dir is not None:
-            OUT_DIR = os.path.join(OUT_DIR, dir)
-        if not os.path.exists(OUT_DIR):
-            os.makedirs(OUT_DIR)
-            print("Directory created: %s" % OUT_DIR)
-        plt.savefig(os.path.join(OUT_DIR, "%s.png" % title))
+            out_dir = os.path.join(out_dir, dir)
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+            print("Directory created: %s" % out_dir)
+        plt.savefig(os.path.join(out_dir, "%s.png" % title))
         if show:
             plt.show()
         plt.clf()

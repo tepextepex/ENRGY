@@ -144,14 +144,14 @@ class DistributedParams:
 
     def __interpolate_t_air(self, v_gradient=None):
         if v_gradient is None:
-            # v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 km
-            v_gradient = -0.008  # 8 degrees Celsius or Kelvins per 1 km, year 2021 value
+            v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 km
+            # v_gradient = -0.008  # 8 degrees Celsius or Kelvins per 1 km, year 2021 value
         return self.__interpolate_on_dem(self.aws.t_air, v_gradient)
 
     def __interpolate_pressure(self, v_gradient=None):
         if v_gradient is None:
-            # v_gradient = -0.1145  # gPa per 1 m
-            v_gradient = -0.1435  # gPa per 1 m, year 2021 value
+            v_gradient = -0.1145  # gPa per 1 m
+            # v_gradient = -0.1435  # gPa per 1 m, year 2021 value
         return self.__interpolate_on_dem(self.aws.pressure, v_gradient)
 
     def __interpolate_e(self):

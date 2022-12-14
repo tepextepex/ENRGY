@@ -2,6 +2,7 @@ import os
 import csv
 import numpy as np
 from datetime import datetime
+from math import exp
 
 from parameter_classes import CONST
 from parameter_classes import AwsParams, DistributedParams, OutputRow
@@ -11,15 +12,24 @@ from interpolator import interpolate_array
 from saga_lighting import simulate_lighting, cleanup_sgrd
 from msm import calc_melt, tick
 
+import pandas as pd
+
 
 class Energy:
-    def __init__(self, base_dem_path, glacier_outlines_path):
+    def __init__(self, base_dem_path, glacier_outlines_path, out_dir):
 
         self._init_constants()
 
         self.current_date_str = None
         self.input_list = []
         self.output_row = None
+
+        if os.path.isdir(out_dir):
+            self.out_dir = out_dir
+        else:
+            os.mkdir(out_dir)
+            self.out_dir = out_dir
+        # self.out_dir = os.path.dirname(os.path.realpath(__file__))  # TODO: add simulation date and time (?)
 
         self.png_export = 1  # will export every n-th png, default is exporting on the each time step
         self.result_export_dates = None
@@ -33,6 +43,8 @@ class Energy:
         self.albedo = None
         self.albedo_arrays = None
 
+        self.stake_df = None
+        self.out_stake_df = None
         self.use_msm = False
         self.layer_temperatures = None
         self.layer_depths = []
@@ -58,6 +70,29 @@ class Energy:
     def _init_constants(self):
         self.CONST = CONST
 
+    def add_stakes(self, file_path):
+        self.stake_df = pd.read_csv(file_path)
+        self.out_stake_df = pd.DataFrame({"name": self.stake_df["name"]})
+        # self.sample_stakes()
+        # print(self.out_stake_df)
+        # self.write_stakes("/home/tepex/PycharmProjects/energy/2021/heat_fluxes_2021.csv")
+
+    def write_stakes(self, out_file_path):
+        out_path = os.path.join(os.path.dirname(out_file_path), "ice_melt_point.csv")
+        # print(out_path)
+        self.out_stake_df.to_csv(out_path, index=False)
+
+    def sample_stakes(self):
+        vals = []
+        for row in self.stake_df.itertuples():
+            try:
+                value = get_value_by_real_coords(self.total_ice_melt_array, self.geotransform, row.easting, row.northing)
+                value = round(value, 4)
+            except Exception as e:
+                value = None
+            vals.append(value)
+        self.out_stake_df[self.current_date_str] = vals
+
     def add_snow(self, swe_map_path):
         print("Initialized snow cover state (SWE) from %s" % swe_map_path)
         self.swe_array = load_raster(swe_map_path, self.outlines_path, v=False)[0]
@@ -72,7 +107,8 @@ class Energy:
         def extrapolate(value, v_gradient=None):
             delta_dem = self.base_dem_array - elev_aws
             if v_gradient is None:
-                v_gradient = -0.008  # 8 degrees Celsius or Kelvins per 1 km, year 2021 value
+                # v_gradient = -0.008  # 8 degrees Celsius or Kelvins per 1 km, year 2021 value
+                v_gradient = -0.006
             return value + delta_dem * v_gradient
 
         for t_point in temperatures:
@@ -83,14 +119,14 @@ class Energy:
 
         i = 0
         for temp_array in self.layer_temperatures:
-            show_me(temp_array, title="Layer %s temperature" % i, dir="Glacier body temperature")
+            show_me(temp_array, self.out_dir, title="Layer %s temperature" % i, dir="Glacier body temperature")
             i += 1
 
     def add_checkpoints(self, date_str_list):
         dts = [s + " 12:00:00" for s in date_str_list]
         self.result_export_dates = dts
 
-    def model(self, aws_file=None, out_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None, solar_only=False,
+    def model(self, aws_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None, solar_only=False,
               png=True, v=True):
         if (aws_file is not None) and (albedo_maps is not None):
             # loading albedo maps from geotiff files into arrays:
@@ -98,7 +134,7 @@ class Energy:
             for key in albedo_maps:  # albedo_maps contains file paths
                 self.albedo_arrays[key] = load_raster(albedo_maps[key], self.outlines_path, remove_outliers=True, v=v)[
                     0]
-
+            out_file = os.path.join(self.out_dir, "heat_fluxes.csv")
             self.fill_header(out_file)
 
             self.input_list = self.read_input_file(aws_file)
@@ -134,9 +170,18 @@ class Energy:
                 # interpolating albedo map for the current date:
                 self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
                 # albedo of snow can't be lower than 0.65:
-                self.albedo = np.where((self.swe_array > 0) & (self.albedo < 0.65), 0.65, self.albedo)
-                # albedo of ice can't be higher than 0.50:
-                self.albedo = np.where((self.swe_array <= 0) & (self.albedo > 0.50), 0.50, self.albedo)
+                # self.albedo = np.where((self.swe_array > 0) & (self.albedo < 0.65), 0.65, self.albedo)
+                # let's force the snow albedo be constant and decreasing in time:
+                # delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210615", "%Y%m%d")
+                delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210611", "%Y%m%d")  # for the real 2021 data and the 'more snow' experiment
+                #delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210523", "%Y%m%d")  # for the 'less snow' experiment
+                delta_days = delta.days
+                if delta_days > 0:
+                    snow_albedo = 0.40 + 0.44 * exp(-0.12 * delta_days)
+                    print("Setting snow albedo to %.2f" % snow_albedo)
+                    self.albedo = np.where(self.swe_array > 0, snow_albedo, self.albedo)
+                # albedo of ice can't be higher than a threshold value:
+                self.albedo = np.where((self.swe_array <= 0) & (self.albedo > 0.42), 0.42, self.albedo)
                 """
                 # DEBUG: constant ice and snow albedo:
                 self.albedo = np.where(self.swe_array > 0, 0.80, self.albedo)
@@ -149,14 +194,12 @@ class Energy:
                 mean_snow_melt = float(np.nanmean(snow_melt_amount_we))
                 mean_ice_melt = float(np.nanmean(ice_melt_amount_we))
                 mean_swe = float(np.nanmean(self.swe_array))
-                print("Snow/ice melt amount / snow remaining: %.5f/%.5f/%.5f m w.e." % (
-                    mean_snow_melt, mean_ice_melt, mean_swe))
-
                 # snow cover percent:
                 snow_px = np.sum(self.swe_array > 0)
                 total_px = np.count_nonzero(~np.isnan(self.swe_array))
                 snow_cover_percent = round(snow_px / total_px * 100)
-                print("Percent of snow cover:", snow_cover_percent)
+                print("Snow/ice melt amount / snow remaining / percent of snow cover:\n%.5f/%.5f/%.5f m w.e./%s" % (
+                    mean_snow_melt, mean_ice_melt, mean_swe, snow_cover_percent))
 
                 # then we should update snow reservoir:
                 self.swe_array -= snow_melt_amount_we
@@ -170,11 +213,11 @@ class Energy:
                     output.write("\n%s" % stats)
 
                 if png:
-                    show_me(self.albedo, title="%s albedo" % self.current_date_str, dir="Albedo")
-                    show_me(self.swe_array, title="%s snow remnant, m w.e." % self.current_date_str, dir="Snow remnant")
-                    show_me(self.total_ice_melt_array, title="%s total ice ONLY melt, m w.e." % self.current_date_str,
+                    show_me(self.albedo, self.out_dir, title="%s albedo" % self.current_date_str, dir="Albedo")
+                    show_me(self.swe_array, self.out_dir, title="%s snow remnant, m w.e." % self.current_date_str, dir="Snow remnant")
+                    show_me(self.total_ice_melt_array, self.out_dir, title="%s total ice ONLY melt, m w.e." % self.current_date_str,
                             dir="Melt amount")
-                    show_me(self.total_snow_melt_array, title="%s total snow ONLY melt, m w.e." % self.current_date_str,
+                    show_me(self.total_snow_melt_array, self.out_dir, title="%s total snow ONLY melt, m w.e." % self.current_date_str,
                             dir="Melt amount")
                 """  # fancy progress bar:
                 if len(self.input_list) > 100:
@@ -187,6 +230,8 @@ class Energy:
                 if self.result_export_dates is not None:
                     if self.current_date_str in self.result_export_dates:
                         self.export_result()
+                        self.sample_stakes()
+                        self.write_stakes(out_file)
 
             # the final result is always exported despite the "v" and "png" options:
             self.export_result()
@@ -195,7 +240,7 @@ class Energy:
         arrays = (self.total_ice_melt_array, self.total_snow_melt_array, self.swe_array)
         titles = ("total_melt_ice", "total_melt_snow", "remaining_snow_cover")
         for arr, title in zip(arrays, titles):
-            show_me(arr, title="%s %s" % (self.current_date_str, title), units="m w.e.", dir="Melt amount")
+            show_me(arr, self.out_dir, title="%s %s" % (self.current_date_str, title), units="m w.e.", dir="Melt amount")
             export_array_as_geotiff(arr, self.geotransform, self.projection,
                                     os.path.join(OUT_DIR, "%s %s.tiff" % (self.current_date_str, title)))
         print("Result saved as GeoTIFF")
@@ -274,11 +319,11 @@ class Energy:
 
             # exporting preview images for the current time step:
             if png:
-                show_me(sensible_flux_array, title="%s Sensible heat flux" % self.current_date_str, units="W m-2",
+                show_me(sensible_flux_array, self.out_dir, title="%s Sensible heat flux" % self.current_date_str, units="W m-2",
                         dir="Turbulent fluxes")
-                show_me(latent_flux_array, title="%s Latent heat flux" % self.current_date_str, units="W m-2",
+                show_me(latent_flux_array, self.out_dir, title="%s Latent heat flux" % self.current_date_str, units="W m-2",
                         dir="Turbulent fluxes")
-                show_me(rl, title="%s Longwave balance" % self.current_date_str, units="W m-2", dir="Fluxes")
+                show_me(rl, self.out_dir, title="%s Longwave balance" % self.current_date_str, units="W m-2", dir="Fluxes")
         else:
             lwd = 0
             lwu = 0
@@ -294,7 +339,7 @@ class Energy:
         if self.use_msm:
             if png:
                 for i in range(len(self.layer_temperatures)):  # temperatures BEFORE the update
-                    show_me(self.layer_temperatures[i], title="%s Layer %s temperature" % (self.current_date_str, i),
+                    show_me(self.layer_temperatures[i], self.out_dir, title="%s Layer %s temperature" % (self.current_date_str, i),
                             units="degree Celsius", dir="Glacier body temperature")
             ######### DEBUG:
             out_temp_str = "\n%s" % self.current_date_str
@@ -321,11 +366,11 @@ class Energy:
                         melt_flux, point_t_surf - 273.15)
 
         if png:
-            show_me(rs, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2",
+            show_me(rs, self.out_dir, title="%s Incoming shortwave * (1 - albedo)" % self.current_date_str, units="W m-2",
                     dir="Fluxes")
-            show_me(melt_flux, title="%s Heat available for melt" % self.current_date_str, units="W m-2", dir="Fluxes")
-            show_me(g_flux, title="%s In-glacier heat flux" % self.current_date_str, units="W m-2", dir="Fluxes")
-            show_me(atmo_flux, title="%s Atmospheric heat flux" % self.current_date_str, units="W m-2", dir="Fluxes")
+            show_me(melt_flux, self.out_dir, title="%s Heat available for melt" % self.current_date_str, units="W m-2", dir="Fluxes")
+            show_me(g_flux, self.out_dir, title="%s In-glacier heat flux" % self.current_date_str, units="W m-2", dir="Fluxes")
+            show_me(atmo_flux, self.out_dir, title="%s Atmospheric heat flux" % self.current_date_str, units="W m-2", dir="Fluxes")
 
         return melt_flux
 
@@ -340,13 +385,13 @@ class Energy:
         self.potential_incoming_radiation = load_raster(self.potential_incoming_sr_path, self.outlines_path, v=v)[0]
         self.incoming_shortwave = self.J_to_W(self.kWh_to_J(self.potential_incoming_radiation), time_step=time_step)
         if png:
-            show_me(self.incoming_shortwave, title="%s Potential Incoming Solar Radiation" % self.current_date_str,
+            show_me(self.incoming_shortwave, self.out_dir, title="%s Potential Incoming Solar Radiation" % self.current_date_str,
                     units="W m-2", dir="Fluxes")
 
         # potential incoming solar radiation into real:
         self.incoming_shortwave *= self.potential_to_real_insolation_factor(time_step, v=v)
         if png:
-            show_me(self.incoming_shortwave, title="%s Real incoming solar radiation" % self.current_date_str,
+            show_me(self.incoming_shortwave, self.out_dir, title="%s Real incoming solar radiation" % self.current_date_str,
                     units="W m-2", dir="Fluxes")
 
         if (not self.export_potential) and (not self.use_precomputed):
