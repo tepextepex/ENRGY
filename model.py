@@ -7,7 +7,7 @@ from math import exp
 from parameter_classes import CONST
 from parameter_classes import AwsParams, DistributedParams, OutputRow
 from turbo import calc_turbulent_fluxes
-from raster_utils import show_me, load_raster, export_array_as_geotiff, OUT_DIR, get_value_by_real_coords
+from raster_utils import show_me, load_raster, export_array_as_geotiff, get_value_by_real_coords
 from interpolator import interpolate_array
 from saga_lighting import simulate_lighting, cleanup_sgrd
 from msm import calc_melt, tick
@@ -80,7 +80,7 @@ class Energy:
     def write_stakes(self, out_file_path):
         out_path = os.path.join(os.path.dirname(out_file_path), "ice_melt_point.csv")
         # print(out_path)
-        self.out_stake_df.to_csv(out_path, index=False)
+        self.out_stake_df.to_csv(out_path, index=False, float_format="%.3f")
 
     def sample_stakes(self):
         vals = []
@@ -127,7 +127,7 @@ class Energy:
         self.result_export_dates = dts
 
     def model(self, aws_file=None, albedo_maps=None, z=2.0, elev_aws=0.0, xy_aws=None, solar_only=False,
-              png=True, v=True):
+              const_albedo=None, png=True, v=True):
         if (aws_file is not None) and (albedo_maps is not None):
             # loading albedo maps from geotiff files into arrays:
             self.albedo_arrays = {}
@@ -167,26 +167,8 @@ class Energy:
                     self.params = DistributedParams(self.aws, self.base_dem_array, self.current_date_str, False)
                     # False is for not exporting PNGs
 
-                # interpolating albedo map for the current date:
-                self.albedo = interpolate_array(self.albedo_arrays, self.current_date_str)
-                # albedo of snow can't be lower than 0.65:
-                # self.albedo = np.where((self.swe_array > 0) & (self.albedo < 0.65), 0.65, self.albedo)
-                # let's force the snow albedo be constant and decreasing in time:
-                # delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210615", "%Y%m%d")
-                delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210611", "%Y%m%d")  # for the real 2021 data and the 'more snow' experiment
-                #delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210523", "%Y%m%d")  # for the 'less snow' experiment
-                delta_days = delta.days
-                if delta_days > 0:
-                    snow_albedo = 0.40 + 0.44 * exp(-0.12 * delta_days)
-                    print("Setting snow albedo to %.2f" % snow_albedo)
-                    self.albedo = np.where(self.swe_array > 0, snow_albedo, self.albedo)
-                # albedo of ice can't be higher than a threshold value:
-                self.albedo = np.where((self.swe_array <= 0) & (self.albedo > 0.42), 0.42, self.albedo)
-                """
-                # DEBUG: constant ice and snow albedo:
-                self.albedo = np.where(self.swe_array > 0, 0.80, self.albedo)
-                self.albedo = np.where(self.swe_array <= 0, 0.38, self.albedo)
-                """
+                self.albedo = self.calc_albedo(constant=const_albedo)
+
                 melt_flux = self.calc_heat_fluxes(time_step, solar_only=solar_only, png=png, v=v)
                 # print("Melt flux: %.2f W m-2" % np.nanmean(melt_flux))
 
@@ -242,8 +224,43 @@ class Energy:
         for arr, title in zip(arrays, titles):
             show_me(arr, self.out_dir, title="%s %s" % (self.current_date_str, title), units="m w.e.", dir="Melt amount")
             export_array_as_geotiff(arr, self.geotransform, self.projection,
-                                    os.path.join(OUT_DIR, "%s %s.tiff" % (self.current_date_str, title)))
+                                    os.path.join(self.out_dir, "%s %s.tiff" % (self.current_date_str, title)))
         print("Result saved as GeoTIFF")
+
+    def calc_albedo(self, constant=None):
+        """
+
+        :param constant: tuple of floats (ice_albedo, snow_albedo)
+        :return:
+        """
+        if constant is None:
+            # interpolating albedo map for the current date:
+            a = interpolate_array(self.albedo_arrays, self.current_date_str)
+            # albedo of snow can't be lower than 0.65:
+            # a = np.where((self.swe_array > 0) & (a < 0.65), 0.65, a)
+            # let's force the snow albedo be constant and decreasing in time:
+            # delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210615", "%Y%m%d")
+            delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210611",
+                                                                                                    "%Y%m%d")  # for the real 2021 data and the 'more snow' experiment
+            # delta = datetime.strptime(self.current_date_str, "%Y%m%d %H:%M:%S") - datetime.strptime("20210523", "%Y%m%d")  # for the 'less snow' experiment
+            delta_days = delta.days
+            if delta_days > 0:
+                snow_albedo = 0.40 + 0.44 * exp(-0.12 * delta_days)
+                print("Setting snow albedo to %.2f" % snow_albedo)
+                a = np.where(self.swe_array > 0, snow_albedo, a)
+            # albedo of ice can't be higher than a threshold value:
+            a = np.where((self.swe_array <= 0) & (a > 0.42), 0.42, a)
+        else:
+            # a = np.zeros_like(self.albedo_arrays[self.albedo_arrays.keys()[0]])
+            # constant ice and snow albedo:
+            snow_albedo = constant[1]
+            ice_albedo = constant[0]
+            a = np.where(self.swe_array > 0, snow_albedo, ice_albedo)
+            """
+            a = np.where(self.swe_array > 0, 0.80, a)
+            a = np.where(self.swe_array <= 0, 0.38, a)
+            """
+        return a - 0.1
 
     @staticmethod
     def get_time_step(time_list, i, pattern):
@@ -347,7 +364,7 @@ class Energy:
                 point_temp = get_value_by_real_coords(self.layer_temperatures[i], self.geotransform, 478283.5,
                                                       8655893.3)  # these ae the real observation coords
                 out_temp_str += ",%.2f" % point_temp
-            with open(os.path.join(OUT_DIR, "subsurface_temperature_output.csv"), "a") as f:
+            with open(os.path.join(self.out_dir, "subsurface_temperature_output.csv"), "a") as f:
                 f.write(out_temp_str)
             ################
             snow_depth = self.swe_array / CONST["snow_density"]
@@ -414,7 +431,7 @@ class Energy:
         real_at_aws = self.aws.incoming_shortwave
 
         ##### DEBUG:   ###########################################
-        with open(os.path.join(OUT_DIR, "solar_output.csv"), "a") as f:
+        with open(os.path.join(self.out_dir, "solar_output.csv"), "a") as f:
             f.write("\n%s,%s,%s" % (self.current_date_str, potential_at_aws, real_at_aws))
         ##########################################################
 
@@ -504,4 +521,4 @@ if __name__ == "__main__":
     out_file = "/home/tepex/PycharmProjects/energy/aws/test_out.csv"
     #
     e = Energy(arcticdem_path, outlines_path)
-    e.model(aws_file=aws_file, out_file=out_file, albedo_maps=albedo_maps, z=1.6, elev_aws=elev_aws, xy_aws=xy_aws)
+    e.model(aws_file=aws_file, albedo_maps=albedo_maps, z=1.6, elev_aws=elev_aws, xy_aws=xy_aws)

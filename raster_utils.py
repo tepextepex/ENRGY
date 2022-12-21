@@ -3,8 +3,6 @@ from osgeo import gdal
 import numpy as np
 import matplotlib.pyplot as plt
 
-OUT_DIR = "/home/tepex/PycharmProjects/energy/2021/raster/"
-
 
 def show_me(array, out_dir, title=None, units=None, show=False, dir=None, verbose=False):
     try:
