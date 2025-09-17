@@ -3,6 +3,8 @@ from osgeo import gdal
 import numpy as np
 import matplotlib.pyplot as plt
 
+from timeit import timeit
+
 
 def show_me(array, out_dir, title=None, units=None, show=False, dir=None, verbose=False):
     try:
@@ -30,10 +32,11 @@ def show_me(array, out_dir, title=None, units=None, show=False, dir=None, verbos
         print(e)
 
 
-def load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=False, v=True):
+# @timeit
+def load_raster(raster_path, crop_path, res, remove_negatives=False, remove_outliers=False, v=True):
     ds = gdal.Open(raster_path)
     crop_ds = gdal.Warp("", ds, dstSRS="+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs", format="VRT",
-                        cutlineDSName=crop_path, cropToCutline=True, outputType=gdal.GDT_Float32, xRes=10, yRes=10)
+                        cutlineDSName=crop_path, cropToCutline=True, outputType=gdal.GDT_Float32, xRes=res, yRes=res)
     gt = crop_ds.GetGeoTransform()
     proj = crop_ds.GetProjection()
     band = crop_ds.GetRasterBand(1)
@@ -43,7 +46,8 @@ def load_raster(raster_path, crop_path, remove_negatives=False, remove_outliers=
     if remove_negatives:
         array[array < 0] = np.nan  # makes sense for albedo which couldn't be negative
     if remove_outliers:
-        array[array > 1] = np.nan
+        array[array < 0] = 0.001  # makes sense for albedo which couldn't be negative
+        array[array > 1] = 1
     if v:
         print("Raster size is %dx%d" % array.shape)
     return array, gt, proj
