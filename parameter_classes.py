@@ -4,13 +4,14 @@ from dataclasses import dataclass, field
 from turbo import _calc_e_max
 from raster_utils import show_me
 
-
 CONST = {
-        "ice_density": 916.7,  # kg m-3
-        "latent_heat_of_fusion": 3.34 * 10**5,  # J kg-1
-        "specific_heat_capacity_ice": 2097.0,  # J kg-1 K-1
-        "thermal_diffusivity_ice": 1.16 * 10 ** -6,  # m2 s-1
-        "g": 9.81
+    "ice_density": 900.0,  # kg m-3
+    "snow_density": 387.0,  # kg m-3
+    "latent_heat_of_fusion": 3.34 * 10 ** 5,  # J kg-1
+    "specific_heat_capacity_ice": 2097.0,  # J kg-1 K-1
+    "thermal_diffusivity_ice": 1.16 * 10 ** -6,  # m2 s-1, density 900 kg m-3
+    "thermal_diffusivity_snow": 0.40 * 10 ** -6,  # m2 s-1, density 350 kg m-3
+    "g": 9.81
 }
 
 
@@ -22,12 +23,14 @@ class OutputRow:
     rs_balance: np.array
     sensible: np.array
     latent: np.array
+    atmo_flux: np.array
+    g_flux: np.array  # in-glacier heat flux
+    melt_flux: np.array
+    point_t_surf: float
     date_time: datetime = field(init=False)
     date_time_str_output: str = field(init=False)
     rl_balance: np.array = field(init=False)
     tr_balance: np.array = field(init=False)
-    melt_flux: np.array = field(init=False)
-    melt_rate: np.array = field(init=False, metadata={"units": "m w.e. per s"})
 
     def __post_init__(self):
         """
@@ -38,13 +41,6 @@ class OutputRow:
         """
         self.rl_balance = self.lwd - self.lwu
         self.tr_balance = self.sensible + self.latent
-        #
-        self.melt_flux = self.rs_balance + self.rl_balance + self.tr_balance
-        #
-        latent_heat_of_fusion = CONST["latent_heat_of_fusion"]
-        ice_density = CONST["ice_density"]
-        self.melt_rate = self.melt_flux / (ice_density * latent_heat_of_fusion)
-        self.melt_rate[self.melt_rate < 0] = 0  # since negative ice melt is not possible
 
     def __repr__(self):
         mean_rs = float(np.nanmean(self.rs_balance))
@@ -52,7 +48,12 @@ class OutputRow:
         mean_lwd = float(np.nanmean(self.lwd))
         mean_sensible = float(np.nanmean(self.sensible))
         mean_latent = float(np.nanmean(self.latent))
-        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f" % (self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent)
+        mean_atmo = float(np.nanmean(self.atmo_flux))
+        mean_g = float(np.nanmean(self.g_flux))
+        mean_melt = float(np.nanmean(self.melt_flux))
+        t = self.point_t_surf
+        return "%s,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f" % (
+            self.date_time_str, mean_rs, mean_rl, mean_lwd, mean_sensible, mean_latent, mean_atmo, mean_g, mean_melt, t)
 
 
 @dataclass
@@ -64,6 +65,8 @@ class AwsParams:
     rel_humidity: float = field(metadata={"units": "0-1"})
     cloudiness: float = field(metadata={"units": "0-1"})
     incoming_shortwave: float = field(metadata={"units": "W per sq m"})
+    # t_surf: float = field(metadata={"units": "degree Celsius"})
+    t_surf: np.array = field(metadata={"units": "degree Celsius"})
     # AWS location info:
     elev: float
     x: float
@@ -75,7 +78,7 @@ class AwsParams:
     e: float = field(init=False, metadata={"units": "Pa"})  # partial water vapour pressure at the AWS
 
     def __post_init__(self):
-        self.t_surf = 0
+        # self.t_surf = 0
         if self.wind_speed == 0:
             self.wind_speed = 0.01  # otherwise turbulent heat fluxes won't be computed
         self.Tz = self.t_air + 273.15
@@ -93,7 +96,11 @@ class AwsParams:
 class DistributedParams:
     aws: AwsParams
     dem: np.array = field(metadata={"units": "m", "desc": "Elevation"})
-    delta_dem: np.array = field(init=False, metadata={"units": "m", "desc": "Elevation difference relative to AWS location"})  # elevation differences relative to aws location
+    date_str: str
+    export_png: bool
+    delta_dem: np.array = field(init=False, metadata={"units": "m",
+                                                      "desc": "Elevation difference relative to AWS location"})
+    # ^ elevation differences relative to aws location
     t_air: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Air temperature"})
     Tz: np.array = field(init=False, metadata={"units": "Kelvin", "desc": "Air thermodynamic temperature"})
     t_surf: np.array = field(init=False, metadata={"units": "degree Celsius", "desc": "Surface temperature"})
@@ -107,22 +114,24 @@ class DistributedParams:
     def __post_init__(self):
         self.delta_dem = self.dem - self.aws.elev
         self.t_air = self.__interpolate_t_air()
-        self.param_to_png("t_air")
         self.Tz = to_kelvin(self.t_air)
-        self.t_surf = self.__fill_array_with_one_value(self.aws.t_surf)
-        self.param_to_png("t_surf")
+        # self.t_surf = self.__fill_array_with_one_value(self.aws.t_surf)
+        self.t_surf = self.aws.t_surf  # now the surface temperature is already distributed
         self.Tz_surf = to_kelvin(self.t_surf)
         self.wind_speed = self.__fill_array_with_one_value(self.aws.wind_speed)
-        self.param_to_png("wind_speed")
         self.pressure = self.__interpolate_pressure()
-        self.param_to_png("pressure")
         self.P = self.pressure * 100  # Pascals from hPa
         self.e = self.__interpolate_e()
-        self.param_to_png("e")
         self.e_max = _calc_e_max(self.Tz, self.P)
-        self.param_to_png("e_max")
         self.rel_humidity = np.divide(self.e, self.e_max)  # self.e / self.e_max
-        self.param_to_png("rel_humidity")
+        if self.export_png:
+            self.param_to_png("t_air", dir="t_air")
+            self.param_to_png("t_surf", dir="t_surf")
+            self.param_to_png("wind_speed", dir="wind speed")
+            self.param_to_png("pressure", dir="air pressure")
+            self.param_to_png("e", dir="e")
+            self.param_to_png("e_max", dir="e")
+            self.param_to_png("rel_humidity", dir="rel humidity")
 
     def get_meta(self, field_name):
         return self.__dataclass_fields__[field_name].metadata
@@ -135,12 +144,14 @@ class DistributedParams:
 
     def __interpolate_t_air(self, v_gradient=None):
         if v_gradient is None:
-            v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 m
+            v_gradient = -0.006  # 6 degrees Celsius or Kelvins per 1 km
+            # v_gradient = -0.008  # 8 degrees Celsius or Kelvins per 1 km, year 2021 value
         return self.__interpolate_on_dem(self.aws.t_air, v_gradient)
 
     def __interpolate_pressure(self, v_gradient=None):
         if v_gradient is None:
-            v_gradient = -0.1145  # Pa per 1 m
+            v_gradient = -0.1145  # gPa per 1 m
+            # v_gradient = -0.1435  # gPa per 1 m, year 2021 value
         return self.__interpolate_on_dem(self.aws.pressure, v_gradient)
 
     def __interpolate_e(self):
@@ -172,11 +183,12 @@ class DistributedParams:
         """
         return value + self.delta_dem * v_gradient
 
-    def param_to_png(self, param_name):
+    def param_to_png(self, param_name, dir=None):
         array = getattr(self, param_name)
         title = self.get_desc(param_name)
+        title = "%s %s" % (self.date_str, title)
         units = self.get_units(param_name)
-        show_me(array, title=title, units=units, show=False, verbose=True)
+        show_me(array, title=title, units=units, show=False, verbose=False, dir=dir)
 
 
 def to_kelvin(t_celsius):
@@ -184,7 +196,8 @@ def to_kelvin(t_celsius):
 
 
 if __name__ == "__main__":
-    test_aws_params = AwsParams(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2, incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
+    test_aws_params = AwsParams(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2,
+                                incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
     print(test_aws_params)
     print(test_aws_params.Tz)
     print(test_aws_params.__dataclass_fields__['Tz'].metadata)
