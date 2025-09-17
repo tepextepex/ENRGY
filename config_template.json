@@ -1,0 +1,65 @@
+{
+  "input": {
+    "dem": "/home/tepex/PycharmProjects/energy/2022/source/dem/SETSM_s2s041_WV02_20210810_CROP_UTM33N_10m_mini.tif",
+    "outlines": "/home/tepex/AARI/Glaciers/Aldegonda_tc/shp/glaciated_area_2022.shp",
+    "aws": {
+      "file": "/home/tepex/PycharmProjects/energy/2022/source/ALDEGONDA_2022 - ALDEGONDA_2022_Oct.csv",
+      "elev": 214.6,
+      "xy": [478283.5, 8655893.3],
+      "sensor_z": 1.6
+    },
+    "vertical_lapse_rates": {
+      "t_air": "GRADIENT"
+    }
+  },
+  "output": {
+    "out_dir": "/home/tepex/PycharmProjects/energy/2022/2024_W/",
+    "debug_point_output": "turbo_point_output.csv",
+    "resolution": 30,
+    "stake_coords": "/home/tepex/PycharmProjects/energy/2021/source_2021_FINAL/stake_coords.csv",
+    "dates": ["20220802", "20220808", "20220813", "20220820", "20220826", "20220901", "20220908", "20220915"],
+    "verbose": false,
+    "png_export": 720
+  },
+  "albedo": {
+    "use_const": false,
+    "last_snowfall": "20220522",
+    "max_ice_albedo": 0.38,
+    "albedo_maps": {
+      "20220330": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220529_1.tif",
+      "20220529": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220529_1.tif",
+      "20220602": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220602_1.tif",
+      "20220625": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220625_1.tif",
+      "20220706": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220706_1.tif",
+      "20220821": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220821_1.tif",
+      "20221101": "/home/tepex/PycharmProjects/energy/2022/source/albedo/20220821_1.tif"
+    }
+  },
+  "solar": {
+    "use_precomputed": true,
+    "pickles": "/home/tepex/PycharmProjects/energy/2022/source/pickle"
+  },
+  "turbo": {
+    "zm": 0.85,
+    "z_h_or_e": 0.085,
+    "andreas": false,
+    "sensible_corr_factor": 1,
+    "latent_corr_factor": 1
+  },
+  "longwave": {
+    "emissivity": 0.98,
+    "cloud_corr": 0.0
+  },
+  "snow": {
+    "use": true,
+    "density": 387.0,
+    "swe_grid": "/home/tepex/PycharmProjects/energy/2022/source/snow/snow_swe_2022.tif"
+  },
+  "msm": {
+    "use": true,
+    "depths": [0.1, 0.1, 0.3, 0.5, 0.5, 0.5, 3.0],
+    "temperatures": [-6.9, -6.93, -7.025, -7.31, -6.93, -7.12, -7.0, -5.57],
+    "elev": 275.0,
+    "xy": [478283.5, 8655893.3]
+  }
+}
