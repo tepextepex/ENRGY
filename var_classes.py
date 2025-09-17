@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from turbo import _calc_e_max
 from raster_utils import show_me
 
-CONST = {
+PARAMS = {
     "ice_density": 900.0,  # kg m-3
     "snow_density": 387.0,  # kg m-3
     "latent_heat_of_fusion": 3.34 * 10 ** 5,  # J kg-1
@@ -57,16 +57,16 @@ class OutputRow:
 
 
 @dataclass
-class AwsParams:
-    # meteorological parameters:
+class AwsVars:
+    # meteorological variables:
     t_air: float = field(metadata={"units": "degree Celsius"})
     wind_speed: float = field(metadata={"units": "m per s"})
     pressure: float = field(metadata={"units": "hPa"})
     rel_humidity: float = field(metadata={"units": "0-1"})
     cloudiness: float = field(metadata={"units": "0-1"})
     incoming_shortwave: float = field(metadata={"units": "W per sq m"})
-    # t_surf: float = field(metadata={"units": "degree Celsius"})
     t_surf: np.array = field(metadata={"units": "degree Celsius"})
+    grad_temp: float = field(metadata={"units": "degree Celsius per 1 m of altitude"})
     # AWS location info:
     elev: float
     x: float
@@ -78,9 +78,8 @@ class AwsParams:
     e: float = field(init=False, metadata={"units": "Pa"})  # partial water vapour pressure at the AWS
 
     def __post_init__(self):
-        # self.t_surf = 0
         if self.wind_speed == 0:
-            self.wind_speed = 0.01  # otherwise turbulent heat fluxes won't be computed
+            self.wind_speed = 0.1  # otherwise turbulent heat fluxes won't be computed
         self.Tz = self.t_air + 273.15
         self.P = self.pressure * 100  # Pascals from hPa
         self.e = self.rel_humidity * _calc_e_max(self.Tz, self.P)
@@ -93,8 +92,8 @@ class AwsParams:
 
 
 @dataclass
-class DistributedParams:
-    aws: AwsParams
+class DistributedVars:
+    aws: AwsVars
     dem: np.array = field(metadata={"units": "m", "desc": "Elevation"})
     date_str: str
     export_png: bool
@@ -113,7 +112,7 @@ class DistributedParams:
 
     def __post_init__(self):
         self.delta_dem = self.dem - self.aws.elev
-        self.t_air = self.__interpolate_t_air()
+        self.t_air = self.__interpolate_t_air(v_gradient=self.aws.grad_temp)
         self.Tz = to_kelvin(self.t_air)
         # self.t_surf = self.__fill_array_with_one_value(self.aws.t_surf)
         self.t_surf = self.aws.t_surf  # now the surface temperature is already distributed
@@ -196,8 +195,8 @@ def to_kelvin(t_celsius):
 
 
 if __name__ == "__main__":
-    test_aws_params = AwsParams(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2,
-                                incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
+    test_aws_params = AwsVars(t_air=5, wind_speed=3, rel_humidity=0.80, pressure=1000, cloudiness=0.2,
+                              incoming_shortwave=250, z=1.6, elev=290, x=478342, y=8655635)
     print(test_aws_params)
     print(test_aws_params.Tz)
     print(test_aws_params.__dataclass_fields__['Tz'].metadata)
