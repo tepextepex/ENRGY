@@ -1,10 +1,11 @@
-from parameter_classes import CONST
+from timeit import timeit
+from var_classes import PARAMS
 import numpy as np
 import matplotlib.pyplot as plt
 
-latent_heat_of_fusion = CONST["latent_heat_of_fusion"]
-ice_density = CONST["ice_density"]
-snow_density = CONST["snow_density"]
+latent_heat_of_fusion = PARAMS["latent_heat_of_fusion"]
+ice_density = PARAMS["ice_density"]
+snow_density = PARAMS["snow_density"]
 
 
 def my_print(flux_title, flux_value):
@@ -26,7 +27,7 @@ def calc_gradients(depths, temps):
         g.append(grad)
     return g
 
-
+#@timeit
 def tick(depths, temps, timestep, flux=None, snow_depth=None):
     """
 
@@ -38,11 +39,11 @@ def tick(depths, temps, timestep, flux=None, snow_depth=None):
     :return: updated temperatures
     """
 
-    c = CONST["specific_heat_capacity_ice"]
-    k_ice = CONST["thermal_diffusivity_ice"]
-    k_snow = CONST["thermal_diffusivity_snow"]
-    rho_ice = CONST["ice_density"]
-    rho_snow = CONST["snow_density"]
+    c = PARAMS["specific_heat_capacity_ice"]
+    k_ice = PARAMS["thermal_diffusivity_ice"]
+    k_snow = PARAMS["thermal_diffusivity_snow"]
+    rho_ice = PARAMS["ice_density"]
+    rho_snow = PARAMS["snow_density"]
 
     if flux is None:
         flux = 0
@@ -75,7 +76,7 @@ def tick(depths, temps, timestep, flux=None, snow_depth=None):
         ################################################################################################
         if depths[i] == 0:
             new_temps.append(temps[i])
-            continue  # all the zero-thickness layers do not exist any more, just skip them
+            continue  # all the zero-thickness layers do not exist anymore, just skip them
         if surf:  # executed for the first layer with a non-zero thickness
             # delta_t = k * g[i] / depths[i]
             ground_flux = k * g[i] * c * rho

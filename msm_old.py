@@ -12,7 +12,7 @@ doi:10.3189/172756502781831133
 """
 from dataclasses import dataclass, field
 from typing import List
-from parameter_classes import CONST
+from var_classes import PARAMS
 import csv
 import matplotlib.pyplot as plt
 
@@ -34,9 +34,9 @@ class Msm:
 
     def __post_init__(self):
         # initializing constants:
-        self.c = CONST["specific_heat_capacity_ice"]
-        self.k = CONST["thermal_diffusivity_ice"]
-        self.density = CONST["ice_density"]
+        self.c = PARAMS["specific_heat_capacity_ice"]
+        self.k = PARAMS["thermal_diffusivity_ice"]
+        self.density = PARAMS["ice_density"]
         # initializing layers:
         self.layers = []
         if len(self.thickness_list) and len(self.temp_list):
